@@ -4,15 +4,15 @@ Konceptu modelis ir balstīts uz prasību formulējumu (reģistrācija, diētas 
 
 ## 1. Diagramma
 
-Lietotajs: Reprezentē jebkuru reģistrētu sistēmas lietotāju. Glabā piekļuves un identifikācijas datus un lietotāja lomu sistēmā.
-Profils: Glabā lietotāja fizikālos un personīgos datus uztura plānošanai. Katram Lietotājam ir tieši viens Profils.
-DietasPlans: Konkrēts uztura plāns noteiktam laika periodam. Lietotājs var izveidot vairākus plānus, kā arī plāns var tikt balstīts uz citu jau esošu veidnes plānu.
-Edienreize: Definē ēdienreizes veidu, dienu un porciju daudzumu. Apvieno Diētas plānu ar konkrētu Recepti.
-Recepte: Pagatavojama ēdiena apraksts. Glabā nosaukumu, aprakstu, pagatavošanas soļus, porciju skaitu un aprēķināto kaloriju daudzumu vienā porcijā.
-ReceptesSastavdala: Saisttabula starp recepti un produktu. Norāda, cik gramu konkrētā produkta ir nepieciešams konkrētajā receptē.
-Produkts: Pamata pārtikas produkts. Glabā produkta uzturvērtību uz 100 gramiem (kalorijas, olbaltumvielas, taukus, ogļhidrātus).
-Birka: Klasifikators/iepriekš definēti birku saraksti. Tiek izmantota, lai atzīmētu Receptes vai norādītu klienta vēlamo diētas veidu Profilā.
-AnalizesSesija: Konsultācija starp klientu un uztura speciālistu. Sasaista divus Lietotājus (klients un nutriciologs).
+- Lietotajs: Reprezentē jebkuru reģistrētu sistēmas lietotāju. Glabā piekļuves un identifikācijas datus un lietotāja lomu sistēmā.
+- Profils: Glabā lietotāja fizikālos un personīgos datus uztura plānošanai. Katram Lietotājam ir tieši viens Profils.
+- DietasPlans: Konkrēts uztura plāns noteiktam laika periodam. Lietotājs var izveidot vairākus plānus, kā arī plāns var tikt balstīts uz citu jau esošu veidnes plānu.
+- Edienreize: Definē ēdienreizes veidu, dienu un porciju daudzumu. Apvieno Diētas plānu ar konkrētu Recepti.
+- Recepte: Pagatavojama ēdiena apraksts. Glabā nosaukumu, aprakstu, pagatavošanas soļus, porciju skaitu un aprēķināto kaloriju daudzumu vienā porcijā.
+- ReceptesSastavdala: Saisttabula starp recepti un produktu. Norāda, cik gramu konkrētā produkta ir nepieciešams konkrētajā receptē.
+- Produkts: Pamata pārtikas produkts. Glabā produkta uzturvērtību uz 100 gramiem (kalorijas, olbaltumvielas, taukus, ogļhidrātus).
+- Birka: Klasifikators/iepriekš definēti birku saraksti. Tiek izmantota, lai atzīmētu Receptes vai norādītu klienta vēlamo diētas veidu Profilā.
+- AnalizesSesija: Konsultācija starp klientu un uztura speciālistu. Sasaista divus Lietotājus (klients un nutriciologs).
 
 ```mermaid
 classDiagram
@@ -113,8 +113,6 @@ classDiagram
 | Analīzes sesija | Klienta pieteikums dzīvesveida analīzei pie nutriciologa; rezultātā var tikt ieteikts plāns | 1.4 (Dzīvesveida analīze) |
 
 ## 3. Aprēķinātie lielumi
-
-Kalorijas netiek glabātas ar roku — tās aprēķina no datiem:
 
 - **Receptes kalorijas** = Σ (sastāvdaļas daudzums_g / 100 × produkta kcal_100g)
 - **Porcijas kalorijas** = receptes kalorijas / porciju skaits
