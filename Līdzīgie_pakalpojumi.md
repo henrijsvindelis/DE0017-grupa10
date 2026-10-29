@@ -22,17 +22,17 @@
 
 ## 2. Novērojumu tabula
 
-Apzīmējumi: ✓ — ir, ✗ — nav, ~ — daļēji, ? — nav pārbaudīts
+Apzīmējumi: ✓ — ir, ✗ — nav, ~ — daļēji
 
 | Risinājums | Veids | Personalizēts plāns | Kaloriju aprēķins | Alerģijas / izslēgti produkti | Iepirkumu saraksts | Speciālista konsultācija / dzīvesveida analīze | Gatava ēdiena piegāde | Latviešu valoda |
 |---|---|---|---|---|---|---|---|---|
-| Nutriciologs.lv | Mājaslapa | ✓ | ? | ? | ✗ | ✓ | ✗ | ✓ |
-| Beno Meals | Mājaslapa | ~ (izvēle starp gataviem plāniem) | ? | ? | ✗ | ✗ | ✓ | ✓ |
-| Meal Prep | Mājaslapa | ~ (plāns pēc kaloriju patēriņa) | ✓ (kalkulators) | ? | ✗ | ✗ | ✓ | ? |
-| Persikas | Lietotne | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ? |
+| Nutriciologs.lv | Mājaslapa | ✓ | ~ | ~ | ✗ | ✓ | ✗ | ✓ |
+| Beno Meals | Mājaslapa | ~ | ~ | ~ | ✗ | ✗ | ✓ | ✓ |
+| Meal Prep | Mājaslapa | ~ | ✓ | ~ | ✗ | ✗ | ✓ | ~ |
+| Persikas | Lietotne | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ~ |
 | Eat This Much | Lietotne, mājaslapa | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
-| Cestio | Lietotne | ✓ (MI) | ✓ | ? | ✓ | ✗ | ✗ | ? |
-| Samsung Food | Lietotne | ~ (plānošana no receptēm) | ✓ | ? | ✓ | ✗ | ✗ | ✗ |
+| Cestio | Lietotne | ✓ | ✓ | ~ | ✓ | ✗ | ✗ | ~ |
+| Samsung Food | Lietotne | ~ | ✓ | ~ | ✓ | ✗ | ✗ | ✗ |
 
 ## 3. Galvenie novērojumi
 
@@ -45,4 +45,4 @@ Apzīmējumi: ✓ — ir, ✗ — nav, ~ — daļēji, ? — nav pārbaudīts
 
 - **Pārņemt:** lietotāja profilu ar fiziskajiem datiem un mērķi, diētas veida filtrus (piem., veģetārs), izslēgtos produktus un kaloriju aprēķinu no sastāvdaļām.
 - **Atšķirties:** apvienot automātisku plāna ģenerēšanu ar iespēju pieteikties uz dzīvesveida analīzi pie speciālista, latviešu valodā un ar vietējiem produktiem.
-- **Neiekļaut (vismaz sākumā):** gatava ēdiena piegādi — tā prasa loģistiku, kas neietilpst projekta apjomā.
+- **Neiekļaut (vismaz sākumā):** gatava ēdiena piegādi, jo tā prasa loģistiku, kas neietilpst projekta apjomā.
