@@ -19,69 +19,69 @@ classDiagram
     direction LR
 
     class Lietotajs {
-        int id
-        String vārds
-        String e_pasts
-        String paroles_hešs
-        String loma
-        DateTime reģistrācijas_datums
+        string id
+        string vārds
+        string e_pasts
+        string paroles_hešs
+        string loma "klients | nutriciologs | administrators"
+        Date reģistrācijas_datums
     }
 
     class Profils {
-        int vecums
-        String dzimums
-        int augums_cm
-        float svars_kg
-        String aktivitātes_līmenis
-        String mērķis
-        int dienas_kaloriju_mērķis
+        number vecums
+        string dzimums
+        number augums_cm
+        number svars_kg
+        string aktivitātes_līmenis
+        string mērķis "zaudēt | uzturēt | pieņemties"
+        number dienas_kaloriju_mērķis
     }
 
     class DietasPlans {
-        int id
-        String nosaukums
-        String veids
+        string id
+        string nosaukums
+        string veids
         Date sākuma_datums
         Date beigu_datums
-        int kaloriju_mērķis
+        number kaloriju_mērķis
     }
 
     class Edienreize {
         Date diena
-        String tips
-        int porcijas
+        string tips "brokastis | pusdienas | vakariņas | uzkoda"
+        number porcijas
     }
 
     class Recepte {
-        int id
-        String nosaukums
-        String apraksts
-        String pagatavošanas_soļi
-        int porciju_skaits
-        float kalorijas_porcijā
+        string id
+        string nosaukums
+        string apraksts
+        string pagatavošanas_soļi
+        number porciju_skaits
+        number kalorijas_porcijā
     }
 
     class ReceptesSastavdala {
-        float daudzums_g
+        number daudzums_g
     }
 
     class Produkts {
-        int id
-        String nosaukums
-        float kcal_100g
-        float olbaltumvielas_100g
-        float tauki_100g
-        float ogļhidrāti_100g
+        string id
+        string nosaukums
+        number kcal_100g
+        number olbaltumvielas_100g
+        number tauki_100g
+        number ogļhidrāti_100g
     }
 
     class Birka {
-        String nosaukums
+        string nosaukums
     }
 
     class AnalizesSesija {
-        DateTime datums_laiks
-        String statuss
-        String piezīmes
+        Date datums_laiks
+        string statuss "pieteikta | notikusi | atcelta"
+        string piezīmes
     }
 
     Lietotajs "1" -- "1" Profils : ir
