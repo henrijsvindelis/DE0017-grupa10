@@ -1,6 +1,6 @@
-# Konceptu modelis
+# Konceptuālais modelis
 
-Konceptu modelis ir balstīts uz prasību formulējumu (reģistrācija, diētas plānošana, kaloriju aprēķins, dzīvesveida analīze, filtrēšana).
+Konceptuālais modelis ir balstīts uz prasību formulējumu (reģistrācija, diētas plānošana, kaloriju aprēķins, dzīvesveida analīze, filtrēšana).
 
 ## 1. Diagramma
 
