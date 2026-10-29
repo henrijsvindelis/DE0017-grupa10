@@ -4,6 +4,8 @@ Konceptu modelis ir balstīts uz prasību formulējumu (reģistrācija, diētas 
 
 ## 1. Diagramma
 
+
+
 ```mermaid
 classDiagram
     direction LR
@@ -93,15 +95,15 @@ classDiagram
 
 | Koncepts | Apraksts | Saistītā prasība |
 |---|---|---|
-| Lietotājs | Sistēmas lietotājs ar lomu — klients, nutriciologs vai administrators | 1.1 Reģistrācija |
-| Profils | Klienta fiziskie dati, mērķis, vēlamie diētas veidi un izslēgtie produkti; tiek saglabāts pēc reģistrācijas | 1.1, 1.3 |
-| Diētas plāns | Ēdienreižu kopums noteiktam periodam. *Veidne* ir gatavs plāns, ko klients var izvēlēties; *personīgs* plāns ir klienta kopija, ko var modificēt | 1.3 Diētas plānošana |
-| Ēdienreize | Viena konkrēta ēdienreize plānā (diena + tips) ar izvēlēto recepti un porciju skaitu | 1.3 |
-| Recepte | Ēdiens ar pagatavošanas aprakstu un sastāvdaļām | 1.3, 1.5 |
-| Receptes sastāvdaļa | Saista recepti ar produktu un norāda daudzumu gramos | 1.2 |
-| Produkts | Pamatprodukts ar uzturvērtību uz 100 g — avots kaloriju aprēķinam | 1.2 Kaloriju rēķināšana |
-| Birka | Marķējums filtrēšanai (piem., veģetārs); izmanto gan receptēm, gan klienta preferencēm | 1.5 Filtrēšana |
-| Analīzes sesija | Klienta pieteikums dzīvesveida analīzei pie nutriciologa; rezultātā var tikt ieteikts plāns | 1.4 Dzīvesveida analīze |
+| Lietotājs | Sistēmas lietotājs ar lomu: klients, nutriciologs vai administrators | 1.1 (Reģistrācija) |
+| Profils | Klienta fiziskie dati, mērķis, vēlamie diētas veidi un izslēgtie produkti; tiek saglabāts pēc reģistrācijas | 1.1 (Reģistrācija), 1.3 (Diētas plānošana) |
+| Diētas plāns | Ēdienreižu kopums noteiktam periodam. Veidne ir gatavs plāns, ko klients var izvēlēties. Personīgs plāns ir klienta kopija, ko var modificēt | 1.3 (Diētas plānošana) |
+| Ēdienreize | Viena konkrēta ēdienreize plānā (diena + tips) ar izvēlēto recepti un porciju skaitu | 1.3 (Diētas plānošana) |
+| Recepte | Ēdiens ar pagatavošanas aprakstu un sastāvdaļām | 1.3 (Diētas plānošana), 1.5 (Filtrēšana) |
+| Receptes sastāvdaļa | Saista recepti ar produktu un norāda daudzumu gramos | 1.2 (Kaloriju rēķināšana) |
+| Produkts | Pamatprodukts ar uzturvērtību uz 100 g | 1.2 (Kaloriju rēķināšana) |
+| Birka | Marķējums filtrēšanai (piem., veģetārs), kas tiek izmantots gan receptēm, gan klienta preferencēm | 1.5 (Filtrēšana) |
+| Analīzes sesija | Klienta pieteikums dzīvesveida analīzei pie nutriciologa; rezultātā var tikt ieteikts plāns | 1.4 (Dzīvesveida analīze) |
 
 ## 3. Aprēķinātie lielumi
 
