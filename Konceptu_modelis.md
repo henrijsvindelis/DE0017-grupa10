@@ -4,81 +4,88 @@ Konceptu modelis ir balstīts uz prasību formulējumu (reģistrācija, diētas 
 
 ## 1. Diagramma
 
-
+Lietotajs: Reprezentē jebkuru reģistrētu sistēmas lietotāju. Glabā piekļuves un identifikācijas datus un lietotāja lomu sistēmā.
+Profils: Glabā lietotāja fizikālos un personīgos datus uztura plānošanai. Katram Lietotājam ir tieši viens Profils.
+DietasPlans: Konkrēts uztura plāns noteiktam laika periodam. Lietotājs var izveidot vairākus plānus, kā arī plāns var tikt balstīts uz citu jau esošu veidnes plānu.
+Edienreize: Definē ēdienreizes veidu, dienu un porciju daudzumu. Apvieno Diētas plānu ar konkrētu Recepti.
+Recepte: Pagatavojama ēdiena apraksts. Glabā nosaukumu, aprakstu, pagatavošanas soļus, porciju skaitu un aprēķināto kaloriju daudzumu vienā porcijā.
+ReceptesSastavdala: Saisttabula starp recepti un produktu. Norāda, cik gramu konkrētā produkta ir nepieciešams konkrētajā receptē.
+Produkts: Pamata pārtikas produkts. Glabā produkta uzturvērtību uz 100 gramiem (kalorijas, olbaltumvielas, taukus, ogļhidrātus).
+Birka: Klasifikators/iepriekš definēti birku saraksti. Tiek izmantota, lai atzīmētu Receptes vai norādītu klienta vēlamo diētas veidu Profilā.
+AnalizesSesija: Konsultācija starp klientu un uztura speciālistu. Sasaista divus Lietotājus (klients un nutriciologs).
 
 ```mermaid
 classDiagram
     direction LR
 
     class Lietotajs {
-        +int id
-        +String vārds
-        +String e_pasts
-        +String paroles_hešs
-        +String loma
-        +DateTime reģistrācijas_datums
+        int id
+        String vārds
+        String e_pasts
+        String paroles_hešs
+        String loma
+        DateTime reģistrācijas_datums
     }
 
     class Profils {
-        +int vecums
-        +String dzimums
-        +int augums_cm
-        +float svars_kg
-        +String aktivitātes_līmenis
-        +String mērķis
-        +int dienas_kaloriju_mērķis
+        int vecums
+        String dzimums
+        int augums_cm
+        float svars_kg
+        String aktivitātes_līmenis
+        String mērķis
+        int dienas_kaloriju_mērķis
     }
 
     class DietasPlans {
-        +int id
-        +String nosaukums
-        +String veids
-        +Date sākuma_datums
-        +Date beigu_datums
-        +int kaloriju_mērķis
+        int id
+        String nosaukums
+        String veids
+        Date sākuma_datums
+        Date beigu_datums
+        int kaloriju_mērķis
     }
 
     class Edienreize {
-        +Date diena
-        +String tips
-        +int porcijas
+        Date diena
+        String tips
+        int porcijas
     }
 
     class Recepte {
-        +int id
-        +String nosaukums
-        +String apraksts
-        +String pagatavošanas_soļi
-        +int porciju_skaits
-        +float kalorijas_porcijā
+        int id
+        String nosaukums
+        String apraksts
+        String pagatavošanas_soļi
+        int porciju_skaits
+        float kalorijas_porcijā
     }
 
     class ReceptesSastavdala {
-        +float daudzums_g
+        float daudzums_g
     }
 
     class Produkts {
-        +int id
-        +String nosaukums
-        +float kcal_100g
-        +float olbaltumvielas_100g
-        +float tauki_100g
-        +float ogļhidrāti_100g
+        int id
+        String nosaukums
+        float kcal_100g
+        float olbaltumvielas_100g
+        float tauki_100g
+        float ogļhidrāti_100g
     }
 
     class Birka {
-        +String nosaukums
+        String nosaukums
     }
 
     class AnalizesSesija {
-        +DateTime datums_laiks
-        +String statuss
-        +String piezīmes
+        DateTime datums_laiks
+        String statuss
+        String piezīmes
     }
 
     Lietotajs "1" -- "1" Profils : ir
     Lietotajs "1" -- "*" DietasPlans : izveido
-    DietasPlans "*" --> "0..1" DietasPlans : balstīts uz veidni
     DietasPlans "1" *-- "*" Edienreize : sastāv no
     Edienreize "*" --> "1" Recepte : izmanto
     Recepte "1" *-- "*" ReceptesSastavdala : satur
