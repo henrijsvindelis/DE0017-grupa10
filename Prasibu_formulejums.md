@@ -18,6 +18,7 @@ Iespēja meklēt un filtrēt noteiktas lietas mājaslapā
 # 2. Lietotāju stāsti (User Stories)
 
 |Nr.| Lietotāju stāsts | Prioritāte |
+|---|---|---|---|---|---|---|---|---|
 | 1 | Klients vēlās apskatīt tikai veģetārās opcijas, jo jāmaksimizē klientu daudzveidību                       | 2 |
 | 2 | Klients vēlās piereģistrēties, jo vēlās, lai tā izvēles (preferences) tiktu saglabātas                    | 1 |
 | 3 | Klients vēlās saplānot sev dietu, jo grib veselīgāku dzīves stilu                                         | 1 |
