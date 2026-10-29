@@ -1,6 +1,6 @@
 # Konceptu modelis
 
-Konceptu modelis apraksta, **kas ir sistēmā** — galvenos jēdzienus, to atribūtus un savstarpējās saites. Tas ir balstīts uz prasību formulējumu (reģistrācija, diētas plānošana, kaloriju aprēķins, dzīvesveida analīze, filtrēšana).
+Konceptu modelis ir balstīts uz prasību formulējumu (reģistrācija, diētas plānošana, kaloriju aprēķins, dzīvesveida analīze, filtrēšana).
 
 ## 1. Diagramma
 
@@ -9,69 +9,69 @@ classDiagram
     direction LR
 
     class Lietotajs {
-        id
-        vārds
-        e-pasts
-        paroles_hešs
-        loma : klients | nutriciologs | administrators
-        reģistrācijas_datums
+        +int id
+        +String vārds
+        +String e_pasts
+        +String paroles_hešs
+        +String loma
+        +DateTime reģistrācijas_datums
     }
 
     class Profils {
-        vecums
-        dzimums
-        augums_cm
-        svars_kg
-        aktivitātes_līmenis
-        mērķis : zaudēt | uzturēt | pieņemties
-        dienas_kaloriju_mērķis
+        +int vecums
+        +String dzimums
+        +int augums_cm
+        +float svars_kg
+        +String aktivitātes_līmenis
+        +String mērķis
+        +int dienas_kaloriju_mērķis
     }
 
     class DietasPlans {
-        id
-        nosaukums
-        veids : veidne | personīgs
-        sākuma_datums
-        beigu_datums
-        kaloriju_mērķis
+        +int id
+        +String nosaukums
+        +String veids
+        +Date sākuma_datums
+        +Date beigu_datums
+        +int kaloriju_mērķis
     }
 
     class Edienreize {
-        diena
-        tips : brokastis | pusdienas | vakariņas | uzkoda
-        porcijas
+        +Date diena
+        +String tips
+        +int porcijas
     }
 
     class Recepte {
-        id
-        nosaukums
-        apraksts
-        pagatavošanas_soļi
-        porciju_skaits
-        kalorijas_porcijā (aprēķināts)
+        +int id
+        +String nosaukums
+        +String apraksts
+        +String pagatavošanas_soļi
+        +int porciju_skaits
+        +float kalorijas_porcijā
     }
 
     class ReceptesSastavdala {
-        daudzums_g
+        +float daudzums_g
     }
 
     class Produkts {
-        id
-        nosaukums
-        kcal_100g
-        olbaltumvielas_100g
-        tauki_100g
-        ogļhidrāti_100g
+        +int id
+        +String nosaukums
+        +float kcal_100g
+        +float olbaltumvielas_100g
+        +float tauki_100g
+        +float ogļhidrāti_100g
     }
 
     class Birka {
-        nosaukums : veģetārs | vegāns | bezglutēna | ...
+        +String nosaukums
     }
 
     class AnalizesSesija {
-        datums_laiks
-        statuss : pieteikta | notikusi | atcelta
-        piezīmes
+        +DateTime datums_laiks
+        +String statuss
+        +String piezīmes
     }
 
     Lietotajs "1" -- "1" Profils : ir
