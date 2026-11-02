@@ -10,8 +10,6 @@ A meal-planning page with an Express and MongoDB API for saving food items and r
 4. Run `npm run dev`.
 5. Open <http://localhost:3000> in a browser.
 
-The home page is served by Express. `GET /api/health` reports the server and MongoDB connection state. The server retries MongoDB connections when the database is unavailable.
-
 ## Menu API
 
 - `GET /api/food-items?type=recipe` returns the three newest recipes.
