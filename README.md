@@ -1,0 +1,23 @@
+# Quality Food
+
+A meal-planning page with an Express and MongoDB API for saving food items and recipes.
+
+## Run locally
+
+1. Install Node.js 20 or newer.
+2. Run `npm install`.
+3. Copy `.env.example` to `.env` and set `MONGODB_URI` to your MongoDB connection string.
+4. Run `npm run dev`.
+5. Open <http://localhost:3000> in a browser.
+
+The home page is served by Express. `GET /api/health` reports the server and MongoDB connection state. The server retries MongoDB connections when the database is unavailable.
+
+## Menu API
+
+- `GET /api/food-items?type=recipe` returns the three newest recipes.
+- `GET /api/food-items?type=food-item` returns the three newest food items.
+- `POST /api/food-items` saves a food item or recipe. IDs are generated as UUID strings by the server.
+
+Food items require `name`, `kcal_100g`, `protein_100g`, `fat_100g`, and `carbohydrates_100g`.
+
+Recipes require `name`, `cooking_steps`, `amount_portions`, and `caloryperportion`. `description` is optional.
