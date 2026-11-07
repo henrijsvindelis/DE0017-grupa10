@@ -21,16 +21,30 @@ function LeafIcon() {
   );
 }
 
-function MenuCard({ item }) {
+function MenuCard({ item, canDelete, onDelete, deleting }) {
   const isRecipe = item.type === 'recipe';
 
   return (
-    <article className="group rounded-2xl border border-forest/10 bg-white p-6 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-lg">
+    <article className="group relative rounded-2xl border border-forest/10 bg-white p-6 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-lg">
       <div className="mb-5 flex items-center justify-between">
         <span className="rounded-full bg-sage/60 px-3 py-1 text-xs font-bold uppercase tracking-wider text-forest">
           {isRecipe ? 'Recipe' : 'Food item'}
         </span>
-        <span className="text-xs font-medium text-ink/45">{isRecipe ? 'From the kitchen' : 'Nutrition'}</span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-medium text-ink/45">{isRecipe ? 'From the kitchen' : 'Nutrition'}</span>
+          {canDelete && (
+            <button
+              type="button"
+              onClick={() => onDelete(item)}
+              disabled={deleting}
+              aria-label={`Delete ${item.name}`}
+              title="Delete menu item"
+              className="grid size-7 place-items-center rounded-full bg-cream text-lg leading-none text-terracotta transition hover:bg-terracotta hover:text-white disabled:opacity-50"
+            >
+              ×
+            </button>
+          )}
+        </div>
       </div>
       <h3 className="mb-2 font-display text-2xl leading-tight text-forest">{item.name}</h3>
       {isRecipe ? (
@@ -68,7 +82,7 @@ function MenuCard({ item }) {
   );
 }
 
-function MenuGroup({ title, items, loading, type }) {
+function MenuGroup({ title, items, loading, type, canDelete, onDelete, deletingId }) {
   return (
     <section aria-labelledby={`${type}-title`}>
       <div className="mb-5 flex items-end justify-between gap-4">
@@ -82,7 +96,15 @@ function MenuGroup({ title, items, loading, type }) {
         <p className="rounded-2xl border border-forest/10 bg-white p-6 text-sm text-ink/60" role="status">Loading the menu…</p>
       ) : items.length ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {items.map((item) => <MenuCard key={item.id} item={item} />)}
+          {items.map((item) => (
+            <MenuCard
+              key={item.id}
+              item={item}
+              canDelete={canDelete}
+              onDelete={onDelete}
+              deleting={deletingId === item.id}
+            />
+          ))}
         </div>
       ) : (
         <div className="rounded-2xl border border-dashed border-forest/20 bg-white/70 px-6 py-10 text-center">
@@ -108,8 +130,9 @@ function FormField({ label, name, type = 'text', min, step, required = true, ...
   );
 }
 
-function AddItemDialog({ open, onClose, onSaved }) {
-  const [type, setType] = useState('food-item');
+function AddItemDialog({ open, onClose, onSaved, user }) {
+  const canAddFood = user.role === 'Admin' || user.role === 'Nutritionist';
+  const [type, setType] = useState(canAddFood ? 'food-item' : 'recipe');
   const [status, setStatus] = useState({ message: '', error: false });
   const [saving, setSaving] = useState(false);
 
@@ -178,7 +201,7 @@ function AddItemDialog({ open, onClose, onSaved }) {
               onChange={(event) => { setType(event.target.value); setStatus({ message: '', error: false }); }}
               className="mt-2 w-full rounded-xl border border-forest/15 bg-cream/60 px-4 py-3 text-sm outline-none focus:border-forest focus:ring-4 focus:ring-forest/10"
             >
-              <option value="food-item">Food item</option>
+              {canAddFood && <option value="food-item">Food item</option>}
               <option value="recipe">Recipe</option>
             </select>
           </label>
@@ -213,11 +236,121 @@ function AddItemDialog({ open, onClose, onSaved }) {
   );
 }
 
+function AuthPage({ register, onAuthenticated }) {
+  const [status, setStatus] = useState({ message: '', error: false });
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const values = Object.fromEntries(formData.entries());
+    if (register && values.password !== values.repeatPassword) {
+      setStatus({ message: 'Passwords do not match.', error: true });
+      return;
+    }
+
+    setSubmitting(true);
+    setStatus({ message: '', error: false });
+    try {
+      const response = await fetch(`/api/auth/${register ? 'register' : 'login'}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values)
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to continue.');
+      onAuthenticated(result.user);
+      window.location.assign('/');
+    } catch (error) {
+      setStatus({ message: error.message || 'Unable to continue. Please try again.', error: true });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <main className="mx-auto grid min-h-[calc(100vh-76px)] max-w-lg content-center px-5 py-16">
+      <section className="rounded-3xl border border-forest/10 bg-white p-7 shadow-sm sm:p-10">
+        <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-terracotta">Quality Food account</p>
+        <h1 className="mb-3 font-display text-4xl text-forest">{register ? 'Create your account' : 'Welcome back'}</h1>
+        <p className="mb-8 text-sm leading-6 text-ink/60">
+          {register ? 'Join the community and share your favorite recipes.' : 'Log in to share recipes and manage your account.'}
+        </p>
+        <form className="grid gap-5" onSubmit={handleSubmit}>
+          {register && <FormField label="Username" name="username" minLength={2} maxLength={30} autoComplete="username" />}
+          <FormField label="Email" name="email" type="email" maxLength={254} autoComplete="email" />
+          <FormField label="Password" name="password" type="password" minLength={8} maxLength={128} autoComplete={register ? 'new-password' : 'current-password'} />
+          {register && <FormField label="Repeat password" name="repeatPassword" type="password" minLength={8} maxLength={128} autoComplete="new-password" />}
+          <p className={`min-h-5 text-sm ${status.error ? 'text-red-700' : 'text-forest/70'}`} role="status" aria-live="polite">{status.message}</p>
+          <button type="submit" disabled={submitting} className="rounded-xl bg-forest px-5 py-3 text-sm font-bold text-white transition hover:bg-forest-light disabled:opacity-60">
+            {submitting ? 'Please wait…' : register ? 'Create account' : 'Log in'}
+          </button>
+        </form>
+        <p className="mb-0 mt-6 text-sm text-ink/60">
+          {register ? 'Already have an account? ' : 'New to Quality Food? '}
+          <a className="font-bold text-terracotta hover:text-terracotta-dark" href={register ? '/login' : '/register'}>
+            {register ? 'Log in' : 'Create an account'}
+          </a>
+        </p>
+      </section>
+    </main>
+  );
+}
+
+function ProfilePage({ user, onLogout }) {
+  const [status, setStatus] = useState('');
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  async function handleLogout() {
+    setLoggingOut(true);
+    setStatus('');
+    try {
+      const response = await fetch('/api/auth/logout', { method: 'POST' });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to log out.');
+      onLogout();
+      window.location.assign('/');
+    } catch (error) {
+      setStatus(error.message || 'Unable to log out. Please try again.');
+      setLoggingOut(false);
+    }
+  }
+
+  return (
+    <main className="mx-auto grid min-h-[calc(100vh-76px)] max-w-2xl content-center px-5 py-16">
+      <section className="rounded-3xl border border-forest/10 bg-white p-7 shadow-sm sm:p-10">
+        <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-terracotta">Your account</p>
+        <h1 className="mb-8 font-display text-4xl text-forest">Profile settings</h1>
+        {user ? (
+          <>
+            <dl className="grid gap-5 sm:grid-cols-2">
+              <div><dt className="text-xs font-bold uppercase tracking-wider text-ink/45">Username</dt><dd className="mb-0 mt-1 text-base font-semibold text-forest">{user.username}</dd></div>
+              <div><dt className="text-xs font-bold uppercase tracking-wider text-ink/45">Email</dt><dd className="mb-0 mt-1 break-all text-base font-semibold text-forest">{user.email}</dd></div>
+              <div><dt className="text-xs font-bold uppercase tracking-wider text-ink/45">Account type</dt><dd className="mb-0 mt-1 text-base font-semibold text-forest">{user.role}</dd></div>
+            </dl>
+            <p className="mb-6 mt-6 text-sm leading-6 text-ink/60">To change your account type, contact an administrator.</p>
+            <p className="min-h-5 text-sm text-red-700" role="status">{status}</p>
+            <button type="button" onClick={handleLogout} disabled={loggingOut} className="rounded-xl bg-terracotta px-5 py-3 text-sm font-bold text-white transition hover:bg-terracotta-dark disabled:opacity-60">
+              {loggingOut ? 'Logging out…' : 'Log out'}
+            </button>
+          </>
+        ) : (
+          <p className="mb-0 text-sm text-ink/60">You are not logged in. <a className="font-bold text-terracotta" href="/login">Log in</a> to view your profile.</p>
+        )}
+      </section>
+    </main>
+  );
+}
+
 function App() {
   const [items, setItems] = useState(initialItems);
   const [loading, setLoading] = useState(true);
   const [menuError, setMenuError] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [deletingId, setDeletingId] = useState('');
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [pathname, setPathname] = useState(window.location.pathname);
 
   async function loadMenuItems() {
     setMenuError('');
@@ -241,25 +374,82 @@ function App() {
     }
   }
 
-  useEffect(() => { loadMenuItems(); }, []);
+  async function deleteMenuItem(item) {
+    if (!window.confirm(`Are you sure you want to delete "${item.name}"? This cannot be undone.`)) return;
+
+    setDeletingId(item.id);
+    setMenuError('');
+    try {
+      const response = await fetch(`/api/food-items/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to delete this menu item.');
+      await loadMenuItems();
+    } catch (error) {
+      setMenuError(error.message || 'Unable to delete this menu item. Please try again.');
+    } finally {
+      setDeletingId('');
+    }
+  }
+
+  useEffect(() => {
+    fetch('/api/auth/me')
+      .then(async (response) => {
+        if (response.status === 401) return null;
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to check your account.');
+        return result.user;
+      })
+      .then(setUser)
+      .catch((error) => console.error(error.message))
+      .finally(() => setAuthLoading(false));
+    function handlePopState() { setPathname(window.location.pathname); }
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  useEffect(() => {
+    if (pathname === '/') loadMenuItems();
+  }, [pathname]);
+
+  const isEditor = user?.role === 'Admin' || user?.role === 'Nutritionist';
+  const profileLink = user ? (
+    <a href="/profile" className="rounded-xl bg-forest px-4 py-3 text-xs font-bold text-white no-underline transition hover:bg-forest-light sm:px-5 sm:text-sm">
+      Profile
+    </a>
+  ) : (
+    <a href="/login" className="rounded-xl bg-forest px-4 py-3 text-xs font-bold text-white no-underline transition hover:bg-forest-light sm:px-5 sm:text-sm">
+      Login
+    </a>
+  );
 
   return (
     <div className="min-h-screen bg-cream text-ink">
       <header className="sticky top-0 z-30 border-b border-forest/10 bg-cream/95 backdrop-blur">
         <div className="mx-auto flex min-h-[76px] max-w-7xl items-center justify-between gap-4 px-5 sm:px-8">
-          <a className="flex items-center gap-3 text-forest no-underline" href="#home" aria-label="Quality Food home">
+          <a className="flex items-center gap-3 text-forest no-underline" href="/" aria-label="Quality Food home">
             <span className="grid size-10 place-items-center rounded-full bg-forest text-sage"><LeafIcon /></span>
             <span className="flex flex-col text-lg font-bold leading-tight">Quality Food<span className="mt-1 text-[9px] font-bold uppercase tracking-[0.18em] text-ink/50">Thoughtful meal prep</span></span>
           </a>
           <nav aria-label="Main navigation" className="flex items-center gap-4 sm:gap-8">
-            <a className="hidden text-sm font-semibold text-ink/70 transition hover:text-terracotta sm:inline" href="#menu">The menu</a>
-            <a className="hidden text-sm font-semibold text-ink/70 transition hover:text-terracotta md:inline" href="#approach">Our approach</a>
-            <button type="button" onClick={() => setDialogOpen(true)} className="rounded-xl bg-forest px-4 py-3 text-xs font-bold text-white transition hover:bg-forest-light sm:px-5 sm:text-sm">Add to menu <span aria-hidden="true">+</span></button>
+            {pathname === '/' && <>
+              <a className="hidden text-sm font-semibold text-ink/70 transition hover:text-terracotta sm:inline" href="#menu">The menu</a>
+              <a className="hidden text-sm font-semibold text-ink/70 transition hover:text-terracotta md:inline" href="#approach">Our approach</a>
+              <button type="button" onClick={() => user ? setDialogOpen(true) : window.location.assign('/login')} className="rounded-xl bg-terracotta px-3 py-2.5 text-xs font-bold text-white transition hover:bg-terracotta-dark sm:px-4 sm:py-2.5 sm:text-sm">
+                {user && !isEditor ? 'Add recipe' : 'Add to menu'} <span aria-hidden="true">+</span>
+              </button>
+            </>}
+            {profileLink}
           </nav>
         </div>
       </header>
 
-      <main id="home">
+      {pathname === '/login' || pathname === '/register' ? (
+        <AuthPage register={pathname === '/register'} onAuthenticated={setUser} />
+      ) : pathname === '/profile' ? (
+        authLoading ? <main className="mx-auto max-w-2xl px-5 py-16 text-sm text-ink/60" role="status">Loading your profile…</main> : (
+          <ProfilePage user={user} onLogout={() => setUser(null)} />
+        )
+      ) : <main id="home">
         <section className="relative isolate min-h-[590px] overflow-hidden bg-forest sm:min-h-[650px]">
           <img
             className="absolute inset-0 -z-20 size-full object-cover object-[58%_center]"
@@ -302,8 +492,8 @@ function App() {
               </p>
             )}
             <div className="grid gap-14">
-              <MenuGroup title="Latest recipes" items={items.recipes} loading={loading} type="recipe" />
-              <MenuGroup title="Latest food items" items={items.foodItems} loading={loading} type="food" />
+              <MenuGroup title="Latest recipes" items={items.recipes} loading={loading} type="recipe" canDelete={isEditor} onDelete={deleteMenuItem} deletingId={deletingId} />
+              <MenuGroup title="Latest food items" items={items.foodItems} loading={loading} type="food" canDelete={isEditor} onDelete={deleteMenuItem} deletingId={deletingId} />
             </div>
           </div>
         </section>
@@ -317,7 +507,7 @@ function App() {
             <p className="mb-1 max-w-xl text-sm leading-7 text-white/75 sm:text-base">Good food does not need to be complicated. We bring together wholesome ingredients and simple recipes to help make your week feel a little easier, one meal at a time.</p>
           </div>
         </section>
-      </main>
+      </main>}
 
       <footer className="bg-forest-light px-5 py-7 text-white/75 sm:px-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-2 text-xs sm:flex-row sm:items-center sm:justify-between">
@@ -326,7 +516,7 @@ function App() {
         </div>
       </footer>
 
-      <AddItemDialog open={dialogOpen} onClose={() => setDialogOpen(false)} onSaved={loadMenuItems} />
+      {user && <AddItemDialog open={dialogOpen} onClose={() => setDialogOpen(false)} onSaved={loadMenuItems} user={user} />}
     </div>
   );
 }

@@ -4,12 +4,33 @@ const crypto = require('crypto');
 const express = require('express');
 const mongoose = require('mongoose');
 const path = require('path');
+const { promisify } = require('util');
 
 const app = express();
 const port = process.env.PORT || 3000;
+const scrypt = promisify(crypto.scrypt);
+const sessionDurationMs = 7 * 24 * 60 * 60 * 1000;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'dist')));
+
+const userSchema = new mongoose.Schema({
+  email: { type: String, required: true, unique: true, maxlength: 254 },
+  username: { type: String, required: true, minlength: 2, maxlength: 30 },
+  usernameKey: { type: String, required: true, unique: true, select: false },
+  passwordSalt: { type: String, required: true, select: false },
+  passwordHash: { type: String, required: true, select: false },
+  role: { type: String, enum: ['Admin', 'Nutritionist', 'User'], default: 'User', required: true }
+}, { timestamps: true });
+
+const sessionSchema = new mongoose.Schema({
+  tokenHash: { type: String, required: true, unique: true },
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  expiresAt: { type: Date, required: true, index: { expires: 0 } }
+});
+
+const User = mongoose.model('User', userSchema);
+const Session = mongoose.model('Session', sessionSchema);
 
 const foodItemSchema = new mongoose.Schema({
   id: {
@@ -78,6 +99,125 @@ const foodItemSchema = new mongoose.Schema({
 
 const FoodItem = mongoose.model('FoodItem', foodItemSchema);
 
+function databaseUnavailable(response) {
+  return response.status(503).json({ error: 'The database is not connected. Please try again later.' });
+}
+
+function sessionCookie(token, maxAgeMs = sessionDurationMs) {
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  return `session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(maxAgeMs / 1000)}${secure}`;
+}
+
+function readSessionToken(request) {
+  const cookie = request.headers.cookie?.split(';').map((part) => part.trim())
+    .find((part) => part.startsWith('session='));
+  return cookie ? cookie.slice('session='.length) : '';
+}
+
+function publicUser(user) {
+  return { id: user.id, email: user.email, username: user.username, role: user.role };
+}
+
+async function createSession(user, response) {
+  const token = crypto.randomBytes(32).toString('base64url');
+  await Session.create({
+    tokenHash: crypto.createHash('sha256').update(token).digest('hex'),
+    user: user._id,
+    expiresAt: new Date(Date.now() + sessionDurationMs)
+  });
+  response.setHeader('Set-Cookie', sessionCookie(token));
+}
+
+async function requireUser(request, response, next) {
+  if (mongoose.connection.readyState !== 1) return databaseUnavailable(response);
+
+  const token = readSessionToken(request);
+  if (!token) return response.status(401).json({ error: 'Please log in to continue.' });
+
+  try {
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const session = await Session.findOne({ tokenHash, expiresAt: { $gt: new Date() } })
+      .populate('user', 'email username role');
+    if (!session?.user) return response.status(401).json({ error: 'Your session has expired. Please log in again.' });
+    request.user = session.user;
+    request.session = session;
+    return next();
+  } catch (error) {
+    console.error(`Session lookup failed: ${error.message}`);
+    return response.status(500).json({ error: 'Unable to verify your session. Please try again.' });
+  }
+}
+
+app.post('/api/auth/register', async (request, response) => {
+  if (mongoose.connection.readyState !== 1) return databaseUnavailable(response);
+  const { email, username, password, repeatPassword } = request.body || {};
+  const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  const validEmail = normalizedEmail.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail);
+  const validUsername = typeof username === 'string' && username.trim().length >= 2 && username.trim().length <= 30;
+  const validPassword = typeof password === 'string' && password.length >= 8 && password.length <= 128;
+
+  if (!validEmail || !validUsername || !validPassword || password !== repeatPassword) {
+    return response.status(400).json({ error: 'Enter a valid email and username, and matching passwords of at least 8 characters.' });
+  }
+
+  try {
+    const passwordSalt = crypto.randomBytes(16).toString('hex');
+    const passwordHash = (await scrypt(password, passwordSalt, 64)).toString('hex');
+    const user = await User.create({
+      email: normalizedEmail,
+      username: username.trim(),
+      usernameKey: username.trim().toLowerCase(),
+      passwordSalt,
+      passwordHash,
+      role: 'User'
+    });
+    await createSession(user, response);
+    return response.status(201).json({ user: publicUser(user) });
+  } catch (error) {
+    if (error.code === 11000) return response.status(409).json({ error: 'That email or username is already in use.' });
+    console.error(`Account registration failed: ${error.message}`);
+    return response.status(500).json({ error: 'Unable to create your account. Please try again.' });
+  }
+});
+
+app.post('/api/auth/login', async (request, response) => {
+  if (mongoose.connection.readyState !== 1) return databaseUnavailable(response);
+  const email = typeof request.body?.email === 'string' ? request.body.email.trim().toLowerCase() : '';
+  const password = typeof request.body?.password === 'string' ? request.body.password : '';
+
+  try {
+    const user = await User.findOne({ email }).select('+passwordHash +passwordSalt');
+    if (!user || !password || password.length > 128) {
+      return response.status(401).json({ error: 'Email or password is incorrect.' });
+    }
+    const passwordHash = await scrypt(password, user.passwordSalt, 64);
+    const storedHash = Buffer.from(user.passwordHash, 'hex');
+    if (storedHash.length !== passwordHash.length || !crypto.timingSafeEqual(storedHash, passwordHash)) {
+      return response.status(401).json({ error: 'Email or password is incorrect.' });
+    }
+    await createSession(user, response);
+    return response.json({ user: publicUser(user) });
+  } catch (error) {
+    console.error(`Login failed: ${error.message}`);
+    return response.status(500).json({ error: 'Unable to log in. Please try again.' });
+  }
+});
+
+app.get('/api/auth/me', requireUser, (request, response) => {
+  return response.json({ user: publicUser(request.user) });
+});
+
+app.post('/api/auth/logout', requireUser, async (request, response) => {
+  try {
+    await request.session.deleteOne();
+    response.setHeader('Set-Cookie', sessionCookie('', 0));
+    return response.json({ success: true });
+  } catch (error) {
+    console.error(`Logout failed: ${error.message}`);
+    return response.status(500).json({ error: 'Unable to log out. Please try again.' });
+  }
+});
+
 app.get('/api/health', (_request, response) => {
   const databaseStates = ['disconnected', 'connected', 'connecting', 'disconnecting'];
 
@@ -132,9 +272,14 @@ app.get('/api/food-items', async (request, response) => {
   }
 });
 
-app.post('/api/food-items', async (request, response) => {
+app.post('/api/food-items', requireUser, async (request, response) => {
   const body = request.body || {};
   const { type, name } = body;
+  if (type === 'food-item' &&
+    request.user.role !== 'Admin' &&
+    request.user.role !== 'Nutritionist') {
+    return response.status(403).json({ error: 'Only admins and nutritionists can add food items.' });
+  }
   const validTypes = ['food-item', 'recipe'];
   const validNumber = (value) => typeof value === 'number' && Number.isFinite(value);
   const validName = typeof name === 'string' && name.trim().length >= 1 && name.trim().length <= 100;
@@ -153,10 +298,6 @@ app.post('/api/food-items', async (request, response) => {
     (type === 'food-item' && !validFoodItem) ||
     (type === 'recipe' && !validRecipe)) {
     return response.status(400).json({ error: 'Please provide valid values for all required fields.' });
-  }
-
-  if (mongoose.connection.readyState !== 1) {
-    return response.status(503).json({ error: 'The database is not connected. Please try again later.' });
   }
 
   try {
@@ -185,6 +326,29 @@ app.post('/api/food-items', async (request, response) => {
     console.error(`Food item save failed: ${error.message}`);
     return response.status(500).json({ error: 'Unable to save this item. Please try again.' });
   }
+});
+
+app.delete('/api/food-items/:id', requireUser, async (request, response) => {
+  if (request.user.role !== 'Admin' && request.user.role !== 'Nutritionist') {
+    return response.status(403).json({ error: 'Only admins and nutritionists can delete menu items.' });
+  }
+
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(request.params.id)) {
+    return response.status(400).json({ error: 'Invalid menu item ID.' });
+  }
+
+  try {
+    const item = await FoodItem.findOneAndDelete({ id: request.params.id });
+    if (!item) return response.status(404).json({ error: 'Menu item not found.' });
+    return response.json({ success: true });
+  } catch (error) {
+    console.error(`Menu item deletion failed: ${error.message}`);
+    return response.status(500).json({ error: 'Unable to delete this menu item. Please try again.' });
+  }
+});
+
+app.get('*', (_request, response) => {
+  return response.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
 app.listen(port, () => {

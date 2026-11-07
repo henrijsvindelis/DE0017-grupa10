@@ -23,3 +23,11 @@ For a production-style run, use `npm run build` followed by `npm start`, then op
 Food items require `name`, `kcal_100g`, `protein_100g`, `fat_100g`, and `carbohydrates_100g`.
 
 Recipes require `name`, `cooking_steps`, `amount_portions`, and `caloryperportion`. `description` is optional.
+
+## Accounts and roles
+
+- Register at `/register` with an email, username, password, and repeated password. Passwords must be at least 8 characters.
+- Log in at `/login`; the profile page is available at `/profile`.
+- New accounts always receive the `User` role. Users may add recipes; `Nutritionist` and `Admin` accounts may also add food items. These permissions are enforced by the API, not only hidden in the interface.
+- Promote an account to `Nutritionist` or `Admin` through a trusted MongoDB administration tool by changing that user's `role` field. Never allow public registration to choose a privileged role.
+- Sessions use an HttpOnly cookie and are stored in MongoDB with a seven-day expiry.
