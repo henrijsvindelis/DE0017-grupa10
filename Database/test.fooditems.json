@@ -1,0 +1,131 @@
+[{
+  "_id": {
+    "$oid": "6ae880fe9a04eb55ae82f616"
+  },
+  "type": "recipe",
+  "name": "Soup",
+  "cooking_steps": "Boil",
+  "amount_portions": 2,
+  "caloryperportion": 100,
+  "id": "b26b6e65-d1cc-4134-8a32-99ed124dd02c",
+  "createdAt": {
+    "$date": "2026-11-02T12:24:30.418Z"
+  },
+  "updatedAt": {
+    "$date": "2026-11-02T12:24:30.418Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "6ae88105ce501a7a431c50ef"
+  },
+  "type": "recipe",
+  "name": "Soup",
+  "cooking_steps": "Boil",
+  "amount_portions": 2,
+  "caloryperportion": 100,
+  "id": "15b0de24-5714-4ddd-a71b-f62a83703925",
+  "createdAt": {
+    "$date": "2026-11-02T12:24:37.900Z"
+  },
+  "updatedAt": {
+    "$date": "2026-11-02T12:24:37.900Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "6ae88206a45dde3be1eeaa65"
+  },
+  "type": "food-item",
+  "name": "Rolled oats (example)",
+  "kcal_100g": 389,
+  "protein_100g": 16.9,
+  "fat_100g": 6.9,
+  "carbohydrates_100g": 66.3,
+  "id": "dc31307a-a895-471f-9bfd-bd34b01c18ab",
+  "createdAt": {
+    "$date": "2026-11-02T12:28:54.635Z"
+  },
+  "updatedAt": {
+    "$date": "2026-11-02T12:28:54.635Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "6ae88206a45dde3be1eeaa67"
+  },
+  "type": "food-item",
+  "name": "Cooked chickpeas (example)",
+  "kcal_100g": 164,
+  "protein_100g": 8.9,
+  "fat_100g": 2.6,
+  "carbohydrates_100g": 27.4,
+  "id": "4fc9ad46-84a3-45c8-836c-e2439485cce5",
+  "createdAt": {
+    "$date": "2026-11-02T12:28:54.662Z"
+  },
+  "updatedAt": {
+    "$date": "2026-11-02T12:28:54.662Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "6ae88206a45dde3be1eeaa69"
+  },
+  "type": "recipe",
+  "name": "Lemon herb grain bowl (example)",
+  "description": "A bright bowl with grains, greens, and a tangy lemon dressing.",
+  "cooking_steps": "1. Cook the grains. 2. Roast seasonal vegetables until tender. 3. Whisk lemon juice with olive oil and chopped herbs. 4. Serve the vegetables and grains with greens and dressing.",
+  "amount_portions": 2,
+  "caloryperportion": 420,
+  "id": "187d9ce3-799d-4a3b-a688-dea15b538eb9",
+  "createdAt": {
+    "$date": "2026-11-02T12:28:54.684Z"
+  },
+  "updatedAt": {
+    "$date": "2026-11-02T12:28:54.684Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "6ae88206a45dde3be1eeaa6b"
+  },
+  "type": "recipe",
+  "name": "Tomato chickpea stew (example)",
+  "description": "A simple, warming chickpea stew.",
+  "cooking_steps": "1. Soften diced onion in a pan. 2. Add tomatoes, chickpeas, and spices. 3. Simmer for 20 minutes. 4. Serve warm.",
+  "amount_portions": 4,
+  "caloryperportion": 310,
+  "id": "3d9aa94b-1a64-48d4-9f19-cf208a4b9432",
+  "createdAt": {
+    "$date": "2026-11-02T12:28:54.706Z"
+  },
+  "updatedAt": {
+    "$date": "2026-11-02T12:28:54.706Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "6ae88358cbfdb3e98cb67110"
+  },
+  "type": "food-item",
+  "name": "Avocado",
+  "kcal_100g": 160,
+  "protein_100g": 2,
+  "fat_100g": 14.7,
+  "carbohydrates_100g": 8.5,
+  "id": "67d21e02-7829-4409-827a-fe067d4fd817",
+  "createdAt": {
+    "$date": "2026-11-02T12:34:32.069Z"
+  },
+  "updatedAt": {
+    "$date": "2026-11-02T12:34:32.069Z"
+  },
+  "__v": 0
+}]

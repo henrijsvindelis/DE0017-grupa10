@@ -1,0 +1,36 @@
+[{
+  "_id": {
+    "$oid": "6aef496a2374fc0b44228681"
+  },
+  "email": "o.fisenkovs@gmail.com",
+  "username": "okii",
+  "usernameKey": "okii",
+  "passwordSalt": "26788a99ee90547fda9dccefbb14e24e",
+  "passwordHash": "c318d516f3290dd2f4c8836ba64e0d5f8e4ec857e219a2f12071b672f17e5b260b47fbd8d864c19e817e00a7375222948000e22d746cba790c6679e639f2deb3",
+  "role": "Admin",
+  "createdAt": {
+    "$date": "2026-11-07T15:53:14.616Z"
+  },
+  "updatedAt": {
+    "$date": "2026-11-07T15:53:14.616Z"
+  },
+  "__v": 0
+},
+{
+  "_id": {
+    "$oid": "6aef4a482374fc0b442286a0"
+  },
+  "email": "fisenkovs@gmail.com",
+  "username": "okii2",
+  "usernameKey": "okii2",
+  "passwordSalt": "16c2f5a280a955dca11f9edf8fddc216",
+  "passwordHash": "18035feddd0e430d13208a930d42a492e3d789c9d3ec126eeec503d00433a1460515102aeb7b82e89ddacd32170de23282fda72cec5b3481bf1ffae4ca6fdc5d",
+  "role": "Nutritionist",
+  "createdAt": {
+    "$date": "2026-11-07T15:56:56.089Z"
+  },
+  "updatedAt": {
+    "$date": "2026-11-07T15:56:56.089Z"
+  },
+  "__v": 0
+}]
