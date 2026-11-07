@@ -1,14 +1,18 @@
 # Quality Food
 
-A meal-planning page with an Express and MongoDB API for saving food items and recipes.
+A React and Tailwind meal-planning website with an Express and MongoDB API for saving food items and recipes.
 
 ## Run locally
 
 1. Install Node.js 20 or newer.
-2. Run `npm install`.
+2. In the `VScode` folder, run `npm install`.
 3. Copy `.env.example` to `.env` and set `MONGODB_URI` to your MongoDB connection string.
 4. Run `npm run dev`.
-5. Open <http://localhost:3000> in a browser.
+5. Open <http://localhost:5173>. The React development server proxies API requests to Express at <http://localhost:3000>.
+
+PowerShell users can use `npm.cmd` instead of `npm` if script execution is blocked.
+
+For a production-style run, use `npm run build` followed by `npm start`, then open <http://localhost:3000>.
 
 ## Menu API
 
