@@ -18,6 +18,13 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true, maxlength: 254 },
   username: { type: String, required: true, minlength: 2, maxlength: 30 },
   usernameKey: { type: String, required: true, unique: true, select: false },
+  age: { type: Number, min: 1, max: 120, validate: Number.isInteger },
+  sex: { type: String, enum: ['female', 'male'] },
+  height: { type: Number, min: 30, max: 300 },
+  weight: { type: Number, min: 1, max: 500 },
+  activityLevel: { type: String, enum: ['sedentary', 'lightly-active', 'moderately-active', 'very-active', 'extra-active'] },
+  goal: { type: String, enum: ['lose', 'gain', 'maintain'] },
+  dailyKcalGoal: { type: Number, min: 500, max: 10000, validate: Number.isInteger },
   passwordSalt: { type: String, required: true, select: false },
   passwordHash: { type: String, required: true, select: false },
   role: { type: String, enum: ['Admin', 'Nutritionist', 'User'], default: 'User', required: true }
@@ -115,7 +122,63 @@ function readSessionToken(request) {
 }
 
 function publicUser(user) {
-  return { id: user.id, email: user.email, username: user.username, role: user.role };
+  return {
+    id: user.id,
+    email: user.email,
+    username: user.username,
+    role: user.role,
+    age: user.age,
+    sex: user.sex,
+    height: user.height,
+    weight: user.weight,
+    activityLevel: user.activityLevel,
+    goal: user.goal,
+    dailyKcalGoal: user.dailyKcalGoal
+  };
+}
+
+const numericProfileFields = {
+  age: { min: 1, max: 120, integer: true },
+  height: { min: 30, max: 300 },
+  weight: { min: 1, max: 500 },
+  dailyKcalGoal: { min: 500, max: 10000, integer: true }
+};
+const enumProfileFields = {
+  sex: ['female', 'male'],
+  activityLevel: ['sedentary', 'lightly-active', 'moderately-active', 'very-active', 'extra-active'],
+  goal: ['lose', 'gain', 'maintain']
+};
+
+function parseProfileFields(input) {
+  const values = {};
+  for (const [field, { min, max, integer }] of Object.entries(numericProfileFields)) {
+    if (!Object.prototype.hasOwnProperty.call(input, field)) continue;
+    const rawValue = input[field];
+    if (rawValue === null || rawValue === '') {
+      values[field] = null;
+      continue;
+    }
+    const value = typeof rawValue === 'number'
+      ? rawValue
+      : typeof rawValue === 'string' && rawValue.trim() !== '' ? Number(rawValue) : NaN;
+    if (!Number.isFinite(value) || value < min || value > max || (integer && !Number.isInteger(value))) {
+      return { error: `Enter a valid ${field} value.`, values: null };
+    }
+    values[field] = value;
+  }
+  for (const [field, allowedValues] of Object.entries(enumProfileFields)) {
+    if (!Object.prototype.hasOwnProperty.call(input, field)) continue;
+    const value = input[field];
+    if (value === null || value === '') {
+      values[field] = null;
+      continue;
+    }
+    if (typeof value !== 'string' || !allowedValues.includes(value)) {
+      return { error: `Choose a valid ${field}.`, values: null };
+    }
+    values[field] = value;
+  }
+  return { error: null, values };
 }
 
 async function createSession(user, response) {
@@ -137,7 +200,7 @@ async function requireUser(request, response, next) {
   try {
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
     const session = await Session.findOne({ tokenHash, expiresAt: { $gt: new Date() } })
-      .populate('user', 'email username role');
+      .populate('user', 'email username role age sex height weight activityLevel goal dailyKcalGoal');
     if (!session?.user) return response.status(401).json({ error: 'Your session has expired. Please log in again.' });
     request.user = session.user;
     request.session = session;
@@ -151,6 +214,8 @@ async function requireUser(request, response, next) {
 app.post('/api/auth/register', async (request, response) => {
   if (mongoose.connection.readyState !== 1) return databaseUnavailable(response);
   const { email, username, password, repeatPassword } = request.body || {};
+  const profile = parseProfileFields(request.body || {});
+  if (profile.error) return response.status(400).json({ error: profile.error });
   const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
   const validEmail = normalizedEmail.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail);
   const validUsername = typeof username === 'string' && username.trim().length >= 2 && username.trim().length <= 30;
@@ -167,6 +232,7 @@ app.post('/api/auth/register', async (request, response) => {
       email: normalizedEmail,
       username: username.trim(),
       usernameKey: username.trim().toLowerCase(),
+      ...profile.values,
       passwordSalt,
       passwordHash,
       role: 'User'
@@ -205,6 +271,23 @@ app.post('/api/auth/login', async (request, response) => {
 
 app.get('/api/auth/me', requireUser, (request, response) => {
   return response.json({ user: publicUser(request.user) });
+});
+
+app.patch('/api/profile', requireUser, async (request, response) => {
+  const profile = parseProfileFields(request.body || {});
+  if (profile.error) return response.status(400).json({ error: profile.error });
+
+  try {
+    request.user.set(profile.values);
+    await request.user.save();
+    return response.json({ user: publicUser(request.user) });
+  } catch (error) {
+    if (error.name === 'ValidationError') {
+      return response.status(400).json({ error: 'Enter valid profile details.' });
+    }
+    console.error(`Profile update failed: ${error.message}`);
+    return response.status(500).json({ error: 'Unable to save your profile. Please try again.' });
+  }
 });
 
 app.post('/api/auth/logout', requireUser, async (request, response) => {

@@ -130,6 +130,72 @@ function FormField({ label, name, type = 'text', min, step, required = true, ...
   );
 }
 
+function FormSelect({ label, name, options, value, ...props }) {
+  const commonClass = 'mt-2 w-full rounded-xl border border-forest/15 bg-cream/60 px-4 py-3 text-sm text-ink outline-none transition focus:border-forest focus:ring-4 focus:ring-forest/10';
+  return (
+    <label className="block text-sm font-semibold text-forest">
+      {label}
+      <select className={commonClass} name={name} defaultValue={value || ''} {...props}>
+        <option value="">Not specified</option>
+        {options.map(([optionValue, optionLabel]) => (
+          <option key={optionValue} value={optionValue}>{optionLabel}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function ProfileFields({ user }) {
+  return (
+    <fieldset className="grid gap-4 border-0 p-0 sm:grid-cols-2">
+      <legend className="mb-1 text-sm font-semibold text-forest">Personal details (all optional)</legend>
+      <FormField label="Age" name="age" type="number" min="1" max="120" step="1" required={false} defaultValue={user?.age ?? ''} />
+      <FormSelect
+        label="Sex"
+        name="sex"
+        value={user?.sex}
+        options={[
+          ['female', 'Female'],
+          ['male', 'Male']
+        ]}
+      />
+      <FormField label="Height (cm)" name="height" type="number" min="30" max="300" step="any" required={false} defaultValue={user?.height ?? ''} />
+      <FormField label="Weight (kg)" name="weight" type="number" min="1" max="500" step="any" required={false} defaultValue={user?.weight ?? ''} />
+      <FormSelect
+        label="Activity level"
+        name="activityLevel"
+        value={user?.activityLevel}
+        options={[
+          ['sedentary', 'Sedentary'],
+          ['lightly-active', 'Lightly active'],
+          ['moderately-active', 'Moderately active'],
+          ['very-active', 'Very active'],
+          ['extra-active', 'Extra active']
+        ]}
+      />
+      <FormSelect
+        label="Goal"
+        name="goal"
+        value={user?.goal}
+        options={[
+          ['lose', 'Lose weight'],
+          ['gain', 'Gain weight'],
+          ['maintain', 'Maintain weight']
+        ]}
+      />
+      <FormField label="Daily calorie goal (kcal)" name="dailyKcalGoal" type="number" min="500" max="10000" step="1" required={false} defaultValue={user?.dailyKcalGoal ?? ''} />
+    </fieldset>
+  );
+}
+
+function profileValuesFrom(formData) {
+  const values = Object.fromEntries(formData.entries());
+  for (const field of ['age', 'height', 'weight', 'dailyKcalGoal']) {
+    values[field] = values[field] === '' ? null : Number(values[field]);
+  }
+  return values;
+}
+
 function AddItemDialog({ open, onClose, onSaved, user }) {
   const canAddFood = user.role === 'Admin' || user.role === 'Nutritionist';
   const [type, setType] = useState(canAddFood ? 'food-item' : 'recipe');
@@ -244,6 +310,7 @@ function AuthPage({ register, onAuthenticated }) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const values = Object.fromEntries(formData.entries());
+    if (register) Object.assign(values, profileValuesFrom(formData));
     if (register && values.password !== values.repeatPassword) {
       setStatus({ message: 'Passwords do not match.', error: true });
       return;
@@ -277,10 +344,11 @@ function AuthPage({ register, onAuthenticated }) {
           {register ? 'Join the community and share your favorite recipes.' : 'Log in to share recipes and manage your account.'}
         </p>
         <form className="grid gap-5" onSubmit={handleSubmit}>
-          {register && <FormField label="Username" name="username" minLength={2} maxLength={30} autoComplete="username" />}
           <FormField label="Email" name="email" type="email" maxLength={254} autoComplete="email" />
+          {register && <FormField label="Username" name="username" minLength={2} maxLength={30} autoComplete="username" />}
           <FormField label="Password" name="password" type="password" minLength={8} maxLength={128} autoComplete={register ? 'new-password' : 'current-password'} />
           {register && <FormField label="Repeat password" name="repeatPassword" type="password" minLength={8} maxLength={128} autoComplete="new-password" />}
+          {register && <ProfileFields />}
           <p className={`min-h-5 text-sm ${status.error ? 'text-red-700' : 'text-forest/70'}`} role="status" aria-live="polite">{status.message}</p>
           <button type="submit" disabled={submitting} className="rounded-xl bg-forest px-5 py-3 text-sm font-bold text-white transition hover:bg-forest-light disabled:opacity-60">
             {submitting ? 'Please wait…' : register ? 'Create account' : 'Log in'}
@@ -297,13 +365,35 @@ function AuthPage({ register, onAuthenticated }) {
   );
 }
 
-function ProfilePage({ user, onLogout }) {
-  const [status, setStatus] = useState('');
+function ProfilePage({ user, onLogout, onUserUpdated }) {
+  const [status, setStatus] = useState({ message: '', error: false });
   const [loggingOut, setLoggingOut] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  async function handleProfileSave(event) {
+    event.preventDefault();
+    setSavingProfile(true);
+    setStatus({ message: '', error: false });
+    try {
+      const response = await fetch('/api/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(profileValuesFrom(new FormData(event.currentTarget)))
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to save your profile.');
+      onUserUpdated(result.user);
+      setStatus({ message: 'Profile details saved.', error: false });
+    } catch (error) {
+      setStatus({ message: error.message || 'Unable to save your profile. Please try again.', error: true });
+    } finally {
+      setSavingProfile(false);
+    }
+  }
 
   async function handleLogout() {
     setLoggingOut(true);
-    setStatus('');
+    setStatus({ message: '', error: false });
     try {
       const response = await fetch('/api/auth/logout', { method: 'POST' });
       const result = await response.json();
@@ -311,7 +401,7 @@ function ProfilePage({ user, onLogout }) {
       onLogout();
       window.location.assign('/');
     } catch (error) {
-      setStatus(error.message || 'Unable to log out. Please try again.');
+      setStatus({ message: error.message || 'Unable to log out. Please try again.', error: true });
       setLoggingOut(false);
     }
   }
@@ -329,7 +419,13 @@ function ProfilePage({ user, onLogout }) {
               <div><dt className="text-xs font-bold uppercase tracking-wider text-ink/45">Account type</dt><dd className="mb-0 mt-1 text-base font-semibold text-forest">{user.role}</dd></div>
             </dl>
             <p className="mb-6 mt-6 text-sm leading-6 text-ink/60">To change your account type, contact an administrator.</p>
-            <p className="min-h-5 text-sm text-red-700" role="status">{status}</p>
+            <form className="grid gap-5 border-t border-forest/10 pt-6" onSubmit={handleProfileSave}>
+              <ProfileFields user={user} />
+              <button type="submit" disabled={savingProfile} className="justify-self-start rounded-xl bg-forest px-5 py-3 text-sm font-bold text-white transition hover:bg-forest-light disabled:opacity-60">
+                {savingProfile ? 'Saving…' : 'Save profile details'}
+              </button>
+            </form>
+            <p className={`min-h-5 text-sm ${status.error ? 'text-red-700' : 'text-forest/70'}`} role="status" aria-live="polite">{status.message}</p>
             <button type="button" onClick={handleLogout} disabled={loggingOut} className="rounded-xl bg-terracotta px-5 py-3 text-sm font-bold text-white transition hover:bg-terracotta-dark disabled:opacity-60">
               {loggingOut ? 'Logging out…' : 'Log out'}
             </button>
@@ -447,7 +543,7 @@ function App() {
         <AuthPage register={pathname === '/register'} onAuthenticated={setUser} />
       ) : pathname === '/profile' ? (
         authLoading ? <main className="mx-auto max-w-2xl px-5 py-16 text-sm text-ink/60" role="status">Loading your profile…</main> : (
-          <ProfilePage user={user} onLogout={() => setUser(null)} />
+          <ProfilePage user={user} onLogout={() => setUser(null)} onUserUpdated={setUser} />
         )
       ) : <main id="home">
         <section className="relative isolate min-h-[590px] overflow-hidden bg-forest sm:min-h-[650px]">
