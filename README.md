@@ -5,14 +5,15 @@ A React and Tailwind meal-planning website with an Express and MongoDB API for s
 ## Run locally
 
 1. Install Node.js 20 or newer.
-2. In the `VScode` folder, run `npm install`.
-3. Copy `.env.example` to `.env` and set `MONGODB_URI` to your MongoDB connection string.
-4. Run `npm run dev`.
-5. Open <http://localhost:5173>. The React development server proxies API requests to Express at <http://localhost:3000>.
+2. Go to the `VScode` folder with `cd`
+3. In the `VScode` folder, run `npm.cmd install`.
+4. Copy `.env.example` to `.env` and set `MONGODB_URI` to your MongoDB connection string.
+5. Run `npm.cmd run dev`.
+6. Open <http://localhost:5173>. The React development server proxies API requests to Express at <http://localhost:3000>.
 
-PowerShell users can use `npm.cmd` instead of `npm` if script execution is blocked.
 
-For a production-style run, use `npm run build` followed by `npm start`, then open <http://localhost:3000>.
+
+For a production-style run, use `npm.cmd run build` followed by `npm.cmd start`, then open <http://localhost:3000>.
 
 ## Menu API
 
