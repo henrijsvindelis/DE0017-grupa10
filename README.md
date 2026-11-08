@@ -5,7 +5,7 @@ A React and Tailwind meal-planning website with an Express and MongoDB API for s
 ## Run locally
 
 1. Install Node.js 20 or newer.
-2. Go to the `VScode` folder with `cd`
+2. Go to the `VScode` folder with `cd .\Vscode`
 3. In the `VScode` folder, run `npm.cmd install`.
 4. Copy `.env.example` to `.env` and set `MONGODB_URI` to your MongoDB connection string.
 5. Run `npm.cmd run dev`.
