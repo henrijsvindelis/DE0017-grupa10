@@ -3,6 +3,8 @@ name: quality-food
 services:
   mongo:
     image: mongo:7
+    logging:
+      driver: none
     volumes:
       - mongo-data:/data/db
 
@@ -14,8 +16,18 @@ services:
       PORT: 3000
       MONGODB_URI: mongodb://mongo:27017/qualityfood
       GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GROQ_API_KEY: ${GROQ_API_KEY}
     depends_on:
       - mongo
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./server.js
+          target: /app/server.js
+        - action: rebuild
+          path: ./src
+        - action: rebuild
+          path: ./package.json
 
 volumes:
   mongo-data:

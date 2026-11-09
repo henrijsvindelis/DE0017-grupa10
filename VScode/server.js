@@ -539,6 +539,205 @@ app.delete('/api/pantry/:foodItemId', requireUser, asyncRoute(async (request, re
   return response.json({ pantry: await loadPantry(request.user._id) });
 }));
 
+const mealTypes = ['breakfast', 'lunch', 'dinner', 'snack'];
+const lastGenerationByUser = new Map();
+
+function buildMealPlanPrompt(target, pantry) {
+  const products = pantry.map((p) => ({
+    id: p.foodItemId, name: p.name, availableGrams: p.grams,
+    kcal_100g: p.kcal_100g, protein_100g: p.protein_100g
+  }));
+  return `Tu esi uztura plānotājs. Izveido vienas dienas ēdienkarti latviešu valodā.
+Lietotāja mērķis: ${target.goal} (lose = zaudēt svaru, maintain = noturēt, gain = pieņemties).
+Dienas kaloriju mērķis: ${target.dailyKcal} kcal, olbaltumvielas: ~${target.proteinGrams} g.
+Ēdienreižu mērķi (kcal): ${JSON.stringify(target.meals)}.
+
+Pieejamie produkti (izmanto TIKAI tos, pēc "id", un kopā ne vairāk par availableGrams katram):
+${JSON.stringify(products)}
+
+Noteikumi:
+- Ja produktu pietiek visai dienai, mode = "plan" un aizpildi visas 4 ēdienreizes.
+- Ja produktu nepietiek, mode = "recipes" un piedāvā 1–3 receptes, ko var pagatavot.
+- Sāli, piparus, ūdeni un garšvielas drīkst minēt pagatavošanas soļos, bet ne sastāvdaļās.
+- Grami ir neapstrādāta produkta svars.
+- Ja produktu kopā pietiek dienas mērķim, OBLIGĀTI aizpildi visas 4 ēdienreizes (breakfast, lunch, dinner, snack).
+- Katras ēdienreizes kalorijām jābūt ±15 % no tās mērķa.
+- Katram produktam, kas minēts pagatavošanas soļos, jābūt arī "ingredients" sarakstā.
+- Olas norādi veselos gabalos (1 ola ≈ 50 g).
+- Centies dažādot ēdienreizes un izmantot dažādus produktus.
+
+Atbildi TIKAI ar JSON šādā formā:
+{"mode":"plan","meals":[{"type":"breakfast","name":"...","steps":["...","..."],"ingredients":[{"id":"...","grams":100}]}],"note":"īss komentārs"}
+type ir viens no: breakfast, lunch, dinner, snack.`;
+}
+
+const aiProviders = [
+  {
+    name: 'Gemini',
+    key: () => process.env.GEMINI_API_KEY,
+    url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+    model: () => process.env.GEMINI_MODEL || 'gemini-3.8-flash'
+  },
+  {
+    name: 'Groq',
+    key: () => process.env.GROQ_API_KEY,
+    url: 'https://api.groq.com/openai/v1/chat/completions',
+    model: () => process.env.GROQ_MODEL || 'openai/gpt-oss-120b'
+  }
+];
+
+async function callProvider(provider, prompt) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 45000);
+  try {
+    const result = await fetch(provider.url, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${provider.key()}` },
+      body: JSON.stringify({
+        model: provider.model(),
+        messages: [{ role: 'user', content: prompt }],
+        response_format: { type: 'json_object' }
+      })
+    });
+    if (!result.ok) {
+      const details = await result.text();
+      console.error(`${provider.name} error`, result.status, details.slice(0, 500));
+      const error = new Error(`${provider.name} atbildēja ar kļūdu ${result.status}.`);
+      error.status = result.status;
+      throw error;
+    }
+    const data = await result.json();
+    const text = data.choices?.[0]?.message?.content || '';
+    return JSON.parse(text.replace(/```json|```/g, '').trim());
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function askGemini(prompt) {
+  const available = aiProviders.filter((provider) => provider.key());
+  if (!available.length) {
+    const error = new Error('Nav iestatīta neviena MI atslēga (GEMINI_API_KEY vai GROQ_API_KEY).');
+    error.status = 503;
+    throw error;
+  }
+  let lastError;
+  for (const provider of available) {
+    try {
+      const answer = await callProvider(provider, prompt);
+      console.log(`Ēdienkarte ģenerēta ar ${provider.name}`);
+      return answer;
+    } catch (error) {
+      lastError = error;
+      if (error instanceof SyntaxError) throw error; 
+    }
+  }
+  const error = new Error(lastError?.status === 429
+    ? 'MI pieprasījumu limits ir sasniegts. Mēģini pēc brīža.'
+    : 'MI pakalpojumi pašlaik nav pieejami. Mēģini pēc brīža.');
+  error.status = lastError?.status === 429 ? 429 : 502;
+  error.retryable = true;
+  return Promise.reject(error);
+}
+
+function round(value, digits = 0) {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
+}
+
+function validateMealPlan(raw, pantry, target) {
+  const byId = new Map(pantry.map((p) => [p.foodItemId, p]));
+  const used = new Map();
+  const meals = [];
+
+  for (const meal of Array.isArray(raw?.meals) ? raw.meals : []) {
+    if (!mealTypes.includes(meal?.type)) continue;
+    const ingredients = [];
+    for (const item of Array.isArray(meal.ingredients) ? meal.ingredients : []) {
+      const product = byId.get(String(item?.id));
+      const grams = Math.round(Number(item?.grams));
+      if (!product || !Number.isFinite(grams) || grams <= 0) continue;
+      used.set(product.foodItemId, (used.get(product.foodItemId) || 0) + grams);
+      ingredients.push({
+        foodItemId: product.foodItemId, name: product.name, grams,
+        kcal: round(product.kcal_100g * grams / 100),
+        protein: round(product.protein_100g * grams / 100, 1),
+        fat: round(product.fat_100g * grams / 100, 1),
+        carbohydrates: round(product.carbohydrates_100g * grams / 100, 1)
+      });
+    }
+    if (!ingredients.length) continue;
+    const steps = Array.isArray(meal.steps) ? meal.steps.map(String) : String(meal.steps || '').split('\n');
+    meals.push({
+      type: meal.type,
+      name: String(meal.name || 'Ēdiens').slice(0, 100),
+      steps: steps.map((s) => s.trim()).filter(Boolean).slice(0, 15),
+      ingredients,
+      kcal: ingredients.reduce((sum, i) => sum + i.kcal, 0),
+      protein: round(ingredients.reduce((sum, i) => sum + i.protein, 0), 1),
+      targetKcal: target.meals[meal.type]
+    });
+  }
+
+  for (const [id, grams] of used) {
+    if (grams > byId.get(id).grams) {
+      return { ok: false, error: `MI izmantoja vairāk produkta "${byId.get(id).name}" nekā ir pieejams.` };
+    }
+  }
+  if (!meals.length) return { ok: false, error: 'MI neizveidoja nevienu derīgu ēdienreizi.' };
+
+  const totalKcal = meals.reduce((sum, m) => sum + m.kcal, 0);
+  const coveredTypes = new Set(meals.map((m) => m.type));
+  const isFullPlan = mealTypes.every((type) => coveredTypes.has(type));
+  return {
+    ok: true,
+    plan: {
+      mode: isFullPlan && raw.mode !== 'recipes' ? 'plan' : 'recipes',
+      meals,
+      totalKcal,
+      totalProtein: round(meals.reduce((sum, m) => sum + m.protein, 0), 1),
+      target,
+      note: String(raw.note || '').slice(0, 300)
+    }
+  };
+}
+
+app.post('/api/meal-plan/generate', requireUser, asyncRoute(async (request, response) => {
+  const userKey = String(request.user._id);
+  const now = Date.now();
+  if (now - (lastGenerationByUser.get(userKey) || 0) < 10000) {
+    return response.status(429).json({ error: 'Pagaidi 10 sekundes pirms nākamās ģenerēšanas.' });
+  }
+  lastGenerationByUser.set(userKey, now);
+
+  const target = calculateNutritionTarget(request.user);
+  if (target.error) return response.status(400).json({ error: target.error });
+
+  const pantry = await loadPantry(request.user._id);
+  if (!pantry.length) {
+    return response.status(400).json({ error: 'Vispirms pievieno produktus sarakstam "Mani produkti".' });
+  }
+
+  const prompt = buildMealPlanPrompt(target, pantry);
+  let lastError = 'Neizdevās izveidot ēdienkarti.';
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const checked = validateMealPlan(await askGemini(prompt), pantry, target);
+      if (checked.ok) return response.json(checked.plan);
+      lastError = checked.error;
+    } catch (error) {
+      if (error.retryable && attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        continue;
+      }
+      if (error.status) return response.status(error.status).json({ error: error.message });
+      lastError = 'MI atbilde nebija derīga.';
+    }
+  }
+  return response.status(422).json({ error: lastError + ' Mēģini vēlreiz.' });
+}));
+
 app.get('*', (_request, response) => {
   return response.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
