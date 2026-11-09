@@ -3,8 +3,6 @@ name: quality-food
 services:
   mongo:
     image: mongo:7
-    logging:
-      driver: none
     volumes:
       - mongo-data:/data/db
 
