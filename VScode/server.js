@@ -430,6 +430,115 @@ app.delete('/api/food-items/:id', requireUser, async (request, response) => {
   }
 });
 
+const asyncRoute = (handler) => (request, response, next) =>
+  Promise.resolve(handler(request, response, next)).catch(next);
+
+const activityFactors = {
+  'sedentary': 1.2,
+  'lightly-active': 1.375,
+  'moderately-active': 1.55,
+  'very-active': 1.725,
+  'extra-active': 1.9
+};
+const goalKcalDelta = { lose: -500, maintain: 0, gain: 300 };
+const goalProteinPerKg = { lose: 1.8, maintain: 1.4, gain: 1.8 };
+const mealShares = { breakfast: 0.25, lunch: 0.35, dinner: 0.3, snack: 0.1 };
+
+function calculateNutritionTarget(user) {
+  const required = ['age', 'sex', 'height', 'weight', 'activityLevel', 'goal'];
+  const missing = required.filter((field) => user[field] === undefined || user[field] === null);
+  if (missing.length) return { error: 'Aizpildi profilu: ' + missing.join(', ') };
+
+  
+  const bmr = 10 * user.weight + 6.25 * user.height - 5 * user.age + (user.sex === 'male' ? 5 : -161);
+  const minimum = user.sex === 'male' ? 1500 : 1200;
+  const calculated = Math.round(bmr * activityFactors[user.activityLevel] + goalKcalDelta[user.goal]);
+  const dailyKcal = user.dailyKcalGoal || Math.max(calculated, minimum);
+
+  const meals = Object.fromEntries(
+    Object.entries(mealShares).map(([meal, share]) => [meal, Math.round(dailyKcal * share)])
+  );
+
+  return {
+    dailyKcal,
+    proteinGrams: Math.round(user.weight * goalProteinPerKg[user.goal]),
+    goal: user.goal,
+    meals,
+    source: user.dailyKcalGoal ? 'user' : 'calculated'
+  };
+}
+
+app.get('/api/nutrition/target', requireUser, (request, response) => {
+  const target = calculateNutritionTarget(request.user);
+  if (target.error) return response.status(400).json({ error: target.error });
+  return response.json(target);
+});
+
+const pantrySchema = new mongoose.Schema({
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  foodItemId: { type: String, required: true },
+  grams: { type: Number, required: true, min: 1, max: 100000 }
+}, { timestamps: true });
+pantrySchema.index({ user: 1, foodItemId: 1 }, { unique: true });
+const Pantry = mongoose.model('Pantry', pantrySchema);
+
+function escapeRegex(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+app.get('/api/products', requireUser, asyncRoute(async (request, response) => {
+  const query = String(request.query.q || '').trim().slice(0, 50);
+  const filter = { type: 'food-item' };
+  if (query) filter.name = { $regex: escapeRegex(query), $options: 'i' };
+  const products = await FoodItem.find(filter).sort({ name: 1 }).limit(50).lean();
+  return response.json({ products: products.map((p) => ({
+    id: p.id, name: p.name, kcal_100g: p.kcal_100g, protein_100g: p.protein_100g,
+    fat_100g: p.fat_100g, carbohydrates_100g: p.carbohydrates_100g
+  })) });
+}));
+
+async function loadPantry(userId) {
+  const entries = await Pantry.find({ user: userId }).lean();
+  const items = await FoodItem.find({ id: { $in: entries.map((e) => e.foodItemId) } }).lean();
+  const byId = new Map(items.map((item) => [item.id, item]));
+  return entries
+    .filter((entry) => byId.has(entry.foodItemId))
+    .map((entry) => {
+      const item = byId.get(entry.foodItemId);
+      return {
+        foodItemId: entry.foodItemId, name: item.name, grams: entry.grams,
+        kcal_100g: item.kcal_100g, protein_100g: item.protein_100g,
+        fat_100g: item.fat_100g, carbohydrates_100g: item.carbohydrates_100g
+      };
+    });
+}
+
+app.get('/api/pantry', requireUser, asyncRoute(async (request, response) => {
+  return response.json({ pantry: await loadPantry(request.user._id) });
+}));
+
+app.post('/api/pantry', requireUser, asyncRoute(async (request, response) => {
+  const foodItemId = String(request.body.foodItemId || '');
+  const grams = Number(request.body.grams);
+  if (!Number.isFinite(grams) || grams < 1 || grams > 100000) {
+    return response.status(400).json({ error: 'Daudzumam jābūt no 1 līdz 100000 gramiem.' });
+  }
+  const product = await FoodItem.findOne({ id: foodItemId, type: 'food-item' }).lean();
+  if (!product) return response.status(404).json({ error: 'Produkts nav atrasts.' });
+
+  await Pantry.findOneAndUpdate(
+    { user: request.user._id, foodItemId },
+    { $set: { grams: Math.round(grams) } },
+    { upsert: true }
+  );
+  return response.status(201).json({ pantry: await loadPantry(request.user._id) });
+}));
+
+app.delete('/api/pantry/:foodItemId', requireUser, asyncRoute(async (request, response) => {
+  await Pantry.deleteOne({ user: request.user._id, foodItemId: request.params.foodItemId });
+  return response.json({ pantry: await loadPantry(request.user._id) });
+}));
+
 app.get('*', (_request, response) => {
   return response.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
