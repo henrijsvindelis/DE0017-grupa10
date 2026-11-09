@@ -556,18 +556,25 @@ Pieejamie produkti (izmanto TIKAI tos, pēc "id", un kopā ne vairāk par availa
 ${JSON.stringify(products)}
 
 Noteikumi:
-- Ja produktu pietiek visai dienai, mode = "plan" un aizpildi visas 4 ēdienreizes.
+- Galvenais ir reālistiski, ikdienišķi ēdieni, ko cilvēki Latvijā tiešām gatavo. Kaloriju precizitāte ir otrajā vietā.
+- Katrā ēdienreizē izmanto parasti 1–3 produktus, kas dabiski sader kopā. Nejauc vienā ēdienā produktus, kurus parasti neēd kopā (piemēram, auzu putru ar griķiem vai vistu).
+- Brokastis: vienkāršs brokastu ēdiens, piemēram, auzu putra VAI olu ēdiens (omlete, vārītas olas).
+- Pusdienas un vakariņas: olbaltumviela (piemēram, vistas fileja vai olas) + piedeva (piemēram, griķi) + dārzeņi, ja ir.
+- Uzkoda: viens vienkāršs, neliels ēdiens.
+- Nav jāizmanto visi produkti. Izvēlies tos, kas der katrai ēdienreizei.
+- Ja produktu kopā pietiek dienas mērķim, mode = "plan" un aizpildi visas 4 ēdienreizes (breakfast, lunch, dinner, snack).
 - Ja produktu nepietiek, mode = "recipes" un piedāvā 1–3 receptes, ko var pagatavot.
-- Sāli, piparus, ūdeni un garšvielas drīkst minēt pagatavošanas soļos, bet ne sastāvdaļās.
-- Grami ir neapstrādāta produkta svars.
-- Ja produktu kopā pietiek dienas mērķim, OBLIGĀTI aizpildi visas 4 ēdienreizes (breakfast, lunch, dinner, snack).
-- Katras ēdienreizes kalorijām jābūt ±15 % no tās mērķa.
-- Katram produktam, kas minēts pagatavošanas soļos, jābūt arī "ingredients" sarakstā.
-- Olas norādi veselos gabalos (1 ola ≈ 50 g).
-- Centies dažādot ēdienreizes un izmantot dažādus produktus.
+- Dienas kopējām kalorijām jābūt aptuveni ±10 % no dienas mērķa. Atsevišķa ēdienreize drīkst atšķirties vairāk, ja tā ēdiens ir dabiskāks.
+- Porciju lielumus pielāgo kalorijām (piemēram, vairāk griķu vai fileja), nevis pievienojot nesaderīgus produktus.
+- Katram produktam, kas minēts nosaukumā vai pagatavošanas soļos, jābūt arī "ingredients" sarakstā ar gramiem.
+- Nemini alternatīvas vai produktus, ko neizmanto.
+- Sāli, piparus, ūdeni, eļļu un garšvielas drīkst minēt pagatavošanas soļos, bet ne sastāvdaļās.
+- Grami ir neapstrādāta (sausa) produkta svars. Olas norādi veselos gabalos (1 ola ≈ 50 g).
+- Dažādo ēdienreizes: neizmanto vienu un to pašu ogļhidrātu avotu vairāk kā 2 ēdienreizēs, ja ir citi varianti.
+- Receptēm jābūt reālistiskām un tādām, ko cilvēki parasti gatavo.
 
 Atbildi TIKAI ar JSON šādā formā:
-{"mode":"plan","meals":[{"type":"breakfast","name":"...","steps":["...","..."],"ingredients":[{"id":"...","grams":100}]}],"note":"īss komentārs"}
+{"mode":"plan","meals":[{"type":"breakfast","name":"...","steps":["...","..."],"ingredients":[{"id":"...","name":"...","grams":100}]}],"note":"īss komentārs"}
 type ir viens no: breakfast, lunch, dinner, snack.`;
 }
 
@@ -646,18 +653,47 @@ function round(value, digits = 0) {
   return Math.round(value * factor) / factor;
 }
 
+function normalizeText(text) {
+  return String(text || '').toLowerCase().trim();
+}
+
+function productStem(name) {
+  const longest = normalizeText(name).split(/\s+/).sort((a, b) => b.length - a.length)[0] || '';
+  if (longest.length >= 6) return longest.slice(0, -2);
+  if (longest.length === 5) return longest.slice(0, -1);
+  return '';
+}
+
+const mealTypeAliases = {
+  breakfast: 'breakfast', brokastis: 'breakfast',
+  lunch: 'lunch', pusdienas: 'lunch',
+  dinner: 'dinner', vakariņas: 'dinner', vakarinas: 'dinner',
+  snack: 'snack', uzkoda: 'snack', launags: 'snack'
+};
+
+function normalizeMealType(type) {
+  return mealTypeAliases[normalizeText(type)] || '';
+}
+
 function validateMealPlan(raw, pantry, target) {
   const byId = new Map(pantry.map((p) => [p.foodItemId, p]));
+  const byName = new Map(pantry.map((p) => [normalizeText(p.name), p]));
   const used = new Map();
   const meals = [];
+  const warnings = [];
 
   for (const meal of Array.isArray(raw?.meals) ? raw.meals : []) {
-    if (!mealTypes.includes(meal?.type)) continue;
+    const type = normalizeMealType(meal?.type);
+    if (!type) {
+      console.warn('Izlaista ēdienreize ar nezināmu tipu:', meal?.type);
+      continue;
+    }
     const ingredients = [];
     for (const item of Array.isArray(meal.ingredients) ? meal.ingredients : []) {
-      const product = byId.get(String(item?.id));
+      const product = byId.get(String(item?.id)) || byName.get(normalizeText(item?.name));
       const grams = Math.round(Number(item?.grams));
-      if (!product || !Number.isFinite(grams) || grams <= 0) continue;
+      if (!product) return { ok: false, error: 'MI izmantoja produktu, kura nav sarakstā.' };
+      if (!Number.isFinite(grams) || grams <= 0) continue;
       used.set(product.foodItemId, (used.get(product.foodItemId) || 0) + grams);
       ingredients.push({
         foodItemId: product.foodItemId, name: product.name, grams,
@@ -667,16 +703,26 @@ function validateMealPlan(raw, pantry, target) {
         carbohydrates: round(product.carbohydrates_100g * grams / 100, 1)
       });
     }
-    if (!ingredients.length) continue;
+    if (!ingredients.length) {
+      console.warn('Izlaista ēdienreize bez sastāvdaļām:', meal?.name);
+      continue;
+    }
     const steps = Array.isArray(meal.steps) ? meal.steps.map(String) : String(meal.steps || '').split('\n');
+    const name = String(meal.name || 'Ēdiens').slice(0, 100);
+
+    const mealText = normalizeText([name, ...steps].join(' '));
+    const listed = new Set(ingredients.map((i) => i.foodItemId));
+    const missing = pantry.find((p) => !listed.has(p.foodItemId) && productStem(p.name) && mealText.includes(productStem(p.name)));
+    if (missing) warnings.push(`"${missing.name}" minēts receptē "${name}", bet nav sastāvdaļās.`);
+
     meals.push({
-      type: meal.type,
-      name: String(meal.name || 'Ēdiens').slice(0, 100),
+      type,
+      name,
       steps: steps.map((s) => s.trim()).filter(Boolean).slice(0, 15),
       ingredients,
       kcal: ingredients.reduce((sum, i) => sum + i.kcal, 0),
       protein: round(ingredients.reduce((sum, i) => sum + i.protein, 0), 1),
-      targetKcal: target.meals[meal.type]
+      targetKcal: target.meals[type]
     });
   }
 
@@ -692,6 +738,7 @@ function validateMealPlan(raw, pantry, target) {
   const isFullPlan = mealTypes.every((type) => coveredTypes.has(type));
   return {
     ok: true,
+    warnings,
     plan: {
       mode: isFullPlan && raw.mode !== 'recipes' ? 'plan' : 'recipes',
       meals,
@@ -719,15 +766,32 @@ app.post('/api/meal-plan/generate', requireUser, asyncRoute(async (request, resp
     return response.status(400).json({ error: 'Vispirms pievieno produktus sarakstam "Mani produkti".' });
   }
 
+  const availableKcal = pantry.reduce((sum, p) => sum + p.kcal_100g * p.grams / 100, 0);
+  const enoughForFullDay = availableKcal >= target.dailyKcal * 0.9;
+
   const prompt = buildMealPlanPrompt(target, pantry);
   let lastError = 'Neizdevās izveidot ēdienkarti.';
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  let bestPlan = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
-      const checked = validateMealPlan(await askGemini(prompt), pantry, target);
-      if (checked.ok) return response.json(checked.plan);
-      lastError = checked.error;
+      const attemptPrompt = attempt === 1 ? prompt
+        : `${prompt}\n\nTava iepriekšējā atbilde bija nederīga: ${lastError} Izlabo to.`;
+      const raw = await askGemini(attemptPrompt);
+      console.log(`MI atbilde (${attempt}. mēģinājums): ${(raw?.meals || []).length} ēdienreizes`, (raw?.meals || []).map((m) => m?.type));
+      const checked = validateMealPlan(raw, pantry, target);
+      if (!checked.ok) {
+        lastError = checked.error;
+        continue;
+      }
+      const problems = [...checked.warnings];
+      if (checked.plan.mode !== 'plan' && enoughForFullDay) {
+        problems.push(`Produktu pietiek visai dienai (${Math.round(availableKcal)} kcal), tāpēc aizpildi visas 4 ēdienreizes.`);
+      }
+      if (!problems.length) return response.json(checked.plan);
+      if (!bestPlan || problems.length <= bestPlan.problems.length) bestPlan = { ...checked.plan, problems };
+      lastError = problems.join(' ');
     } catch (error) {
-      if (error.retryable && attempt < 2) {
+      if (error.retryable && attempt < 3) {
         await new Promise((resolve) => setTimeout(resolve, 3000));
         continue;
       }
@@ -735,7 +799,62 @@ app.post('/api/meal-plan/generate', requireUser, asyncRoute(async (request, resp
       lastError = 'MI atbilde nebija derīga.';
     }
   }
+  if (bestPlan) {
+    const { problems, ...plan } = bestPlan;
+    return response.json({ ...plan, note: `Piezīme: ${problems.join(' ')} ${plan.note}`.trim() });
+  }
   return response.status(422).json({ error: lastError + ' Mēģini vēlreiz.' });
+}));
+
+const mealPlanSchema = new mongoose.Schema({
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  plan: { type: mongoose.Schema.Types.Mixed, required: true }
+}, { timestamps: true });
+const MealPlan = mongoose.model('MealPlan', mealPlanSchema);
+
+function sanitizePlan(plan) {
+  const meals = (Array.isArray(plan?.meals) ? plan.meals : []).slice(0, 10).map((meal) => ({
+    type: mealTypes.includes(meal?.type) ? meal.type : 'snack',
+    name: String(meal?.name || '').slice(0, 100),
+    steps: (Array.isArray(meal?.steps) ? meal.steps : []).slice(0, 15).map((s) => String(s).slice(0, 500)),
+    ingredients: (Array.isArray(meal?.ingredients) ? meal.ingredients : []).slice(0, 20).map((i) => ({
+      foodItemId: String(i?.foodItemId || ''), name: String(i?.name || '').slice(0, 100),
+      grams: Number(i?.grams) || 0, kcal: Number(i?.kcal) || 0
+    })),
+    kcal: Number(meal?.kcal) || 0,
+    protein: Number(meal?.protein) || 0,
+    targetKcal: Number(meal?.targetKcal) || 0
+  }));
+  return {
+    mode: plan?.mode === 'plan' ? 'plan' : 'recipes',
+    meals,
+    totalKcal: Number(plan?.totalKcal) || 0,
+    totalProtein: Number(plan?.totalProtein) || 0,
+    target: { dailyKcal: Number(plan?.target?.dailyKcal) || 0 },
+    note: String(plan?.note || '').slice(0, 300)
+  };
+}
+
+function publicMealPlan(doc) {
+  return { id: String(doc._id), createdAt: doc.createdAt, plan: doc.plan };
+}
+
+app.get('/api/meal-plans', requireUser, asyncRoute(async (request, response) => {
+  const plans = await MealPlan.find({ user: request.user._id }).sort({ createdAt: -1 }).limit(20).lean();
+  return response.json({ plans: plans.map(publicMealPlan) });
+}));
+
+app.post('/api/meal-plans', requireUser, asyncRoute(async (request, response) => {
+  const plan = sanitizePlan(request.body.plan);
+  if (!plan.meals.length) return response.status(400).json({ error: 'Ēdienkarte ir tukša.' });
+  const saved = await MealPlan.create({ user: request.user._id, plan });
+  return response.status(201).json({ plan: publicMealPlan(saved) });
+}));
+
+app.delete('/api/meal-plans/:id', requireUser, asyncRoute(async (request, response) => {
+  if (!mongoose.Types.ObjectId.isValid(request.params.id)) return response.status(404).json({ error: 'Ēdienkarte nav atrasta.' });
+  await MealPlan.deleteOne({ _id: request.params.id, user: request.user._id });
+  return response.json({ ok: true });
 }));
 
 app.get('*', (_request, response) => {

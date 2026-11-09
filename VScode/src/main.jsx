@@ -438,6 +438,253 @@ function ProfilePage({ user, onLogout, onUserUpdated }) {
   );
 }
 
+const mealLabels = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snack' };
+const goalLabels = { lose: 'Lose weight', maintain: 'Maintain weight', gain: 'Gain weight' };
+
+async function requestJson(url, options) {
+  const response = await fetch(url, options);
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || 'Something went wrong. Please try again.');
+  return result;
+}
+
+function MealPlanCard({ meal }) {
+  return (
+    <article className="rounded-2xl border border-forest/10 bg-white p-6 shadow-sm">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <span className="rounded-full bg-sage/60 px-3 py-1 text-xs font-bold uppercase tracking-wider text-forest">{mealLabels[meal.type]}</span>
+        <span className="text-sm font-semibold text-ink/60">{meal.kcal} / {meal.targetKcal} kcal</span>
+      </div>
+      <h3 className="mb-1 font-display text-2xl text-forest">{meal.name}</h3>
+      <p className="mb-4 text-sm text-ink/60">{meal.protein} g protein</p>
+      <ul className="mb-4 grid gap-1 text-sm">
+        {meal.ingredients.map((ingredient) => (
+          <li key={ingredient.foodItemId} className="flex justify-between gap-3 border-b border-forest/5 py-1">
+            <span>{ingredient.name}</span>
+            <span className="text-ink/60">{ingredient.grams} g · {ingredient.kcal} kcal</span>
+          </li>
+        ))}
+      </ul>
+      <ol className="mb-0 list-decimal space-y-1 pl-5 text-sm leading-6 text-ink/80">
+        {meal.steps.map((step, index) => <li key={index}>{step}</li>)}
+      </ol>
+    </article>
+  );
+}
+
+function MealPlannerPage({ user }) {
+  const [target, setTarget] = useState(null);
+  const [targetError, setTargetError] = useState('');
+  const [pantry, setPantry] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [selectedId, setSelectedId] = useState('');
+  const [grams, setGrams] = useState('500');
+  const [status, setStatus] = useState({ message: '', error: false });
+  const [plan, setPlan] = useState(null);
+  const [generating, setGenerating] = useState(false);
+  const [savedPlans, setSavedPlans] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [planSaved, setPlanSaved] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    requestJson('/api/nutrition/target').then(setTarget).catch((error) => setTargetError(error.message));
+    requestJson('/api/pantry').then((result) => setPantry(result.pantry)).catch(() => {});
+    requestJson('/api/products').then((result) => {
+      setProducts(result.products);
+      if (result.products.length) setSelectedId(result.products[0].id);
+    }).catch(() => {});
+    requestJson('/api/meal-plans').then((result) => setSavedPlans(result.plans.filter((saved) => saved.plan?.meals))).catch(() => {});
+  }, [user]);
+
+  async function addToPantry(event) {
+    event.preventDefault();
+    setStatus({ message: '', error: false });
+    try {
+      const result = await requestJson('/api/pantry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ foodItemId: selectedId, grams: Number(grams) })
+      });
+      setPantry(result.pantry);
+    } catch (error) {
+      setStatus({ message: error.message, error: true });
+    }
+  }
+
+  async function removeFromPantry(foodItemId) {
+    try {
+      const result = await requestJson(`/api/pantry/${encodeURIComponent(foodItemId)}`, { method: 'DELETE' });
+      setPantry(result.pantry);
+    } catch (error) {
+      setStatus({ message: error.message, error: true });
+    }
+  }
+
+  async function generatePlan() {
+    setGenerating(true);
+    setStatus({ message: '', error: false });
+    try {
+      setPlan(await requestJson('/api/meal-plan/generate', { method: 'POST' }));
+      setPlanSaved(false);
+    } catch (error) {
+      setStatus({ message: error.message, error: true });
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function savePlan() {
+    setSaving(true);
+    setStatus({ message: '', error: false });
+    try {
+      const result = await requestJson('/api/meal-plans', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan })
+      });
+      setSavedPlans((current) => [result.plan, ...current]);
+      setPlanSaved(true);
+      setStatus({ message: 'Meal plan saved.', error: false });
+    } catch (error) {
+      setStatus({ message: error.message, error: true });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteSavedPlan(id) {
+    if (!window.confirm('Delete this saved meal plan?')) return;
+    try {
+      await requestJson(`/api/meal-plans/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      setSavedPlans((current) => current.filter((saved) => saved.id !== id));
+    } catch (error) {
+      setStatus({ message: error.message, error: true });
+    }
+  }
+
+  function openSavedPlan(saved) {
+    setPlan(saved.plan);
+    setPlanSaved(true);
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+  }
+
+  if (!user) {
+    return (
+      <main className="mx-auto max-w-2xl px-5 py-16 text-sm text-ink/60">
+        <a className="font-bold text-terracotta" href="/login">Log in</a> to plan your meals.
+      </main>
+    );
+  }
+
+  const inputClass = 'mt-2 w-full rounded-xl border border-forest/15 bg-cream/60 px-4 py-3 text-sm text-ink outline-none transition focus:border-forest focus:ring-4 focus:ring-forest/10';
+
+  return (
+    <main className="mx-auto grid max-w-5xl gap-8 px-5 py-14">
+      <div>
+        <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-terracotta">Meal planner</p>
+        <h1 className="font-display text-4xl text-forest sm:text-5xl">Plan your day from what you have.</h1>
+      </div>
+
+      <section className="rounded-3xl border border-forest/10 bg-white p-7 shadow-sm">
+        <h2 className="mb-4 font-display text-2xl text-forest">Your daily target</h2>
+        {targetError ? (
+          <p className="mb-0 text-sm text-terracotta-dark">{targetError} <a className="font-bold text-terracotta" href="/profile">Complete your profile</a>.</p>
+        ) : target ? (
+          <dl className="mb-0 grid gap-5 sm:grid-cols-3">
+            <div><dt className="text-xs font-bold uppercase tracking-wider text-ink/45">Calories</dt><dd className="mb-0 mt-1 text-2xl font-semibold text-forest">{target.dailyKcal} kcal</dd></div>
+            <div><dt className="text-xs font-bold uppercase tracking-wider text-ink/45">Protein</dt><dd className="mb-0 mt-1 text-2xl font-semibold text-forest">{target.proteinGrams} g</dd></div>
+            <div><dt className="text-xs font-bold uppercase tracking-wider text-ink/45">Goal</dt><dd className="mb-0 mt-1 text-2xl font-semibold text-forest">{goalLabels[target.goal]}</dd></div>
+          </dl>
+        ) : <p className="mb-0 text-sm text-ink/60">Loading…</p>}
+      </section>
+
+      <section className="rounded-3xl border border-forest/10 bg-white p-7 shadow-sm">
+        <h2 className="mb-4 font-display text-2xl text-forest">My products</h2>
+        {products.length ? (
+          <form className="mb-6 grid gap-4 sm:grid-cols-[1fr_140px_auto] sm:items-end" onSubmit={addToPantry}>
+            <label className="block text-sm font-semibold text-forest">Product
+              <select className={inputClass} value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>
+                {products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
+              </select>
+            </label>
+            <label className="block text-sm font-semibold text-forest">Grams
+              <input className={inputClass} type="number" min="1" max="100000" value={grams} onChange={(event) => setGrams(event.target.value)} required />
+            </label>
+            <button type="submit" className="rounded-xl bg-forest px-5 py-3 text-sm font-bold text-white transition hover:bg-forest-light">Add</button>
+          </form>
+        ) : <p className="text-sm text-ink/60">No products in the database yet. A nutritionist or admin can add them from the menu page.</p>}
+
+        {pantry.length ? (
+          <ul className="mb-0 grid gap-2">
+            {pantry.map((entry) => (
+              <li key={entry.foodItemId} className="flex items-center justify-between gap-3 rounded-xl bg-cream/60 px-4 py-3 text-sm">
+                <span className="font-semibold text-forest">{entry.name}</span>
+                <span className="flex items-center gap-4 text-ink/60">
+                  {entry.grams} g
+                  <button type="button" onClick={() => removeFromPantry(entry.foodItemId)} className="font-bold text-terracotta hover:text-terracotta-dark" aria-label={`Remove ${entry.name}`}>×</button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="mb-0 text-sm text-ink/60">Add the products you have at home.</p>}
+      </section>
+
+      {savedPlans.length > 0 && (
+        <section className="rounded-3xl border border-forest/10 bg-white p-7 shadow-sm">
+          <h2 className="mb-4 font-display text-2xl text-forest">Saved meal plans</h2>
+          <ul className="mb-0 grid gap-2">
+            {savedPlans.map((saved) => (
+              <li key={saved.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-cream/60 px-4 py-3 text-sm">
+                <span className="font-semibold text-forest">
+                  {new Date(saved.createdAt).toLocaleString('lv-LV', { dateStyle: 'medium', timeStyle: 'short' })}
+                  <span className="ml-2 font-normal text-ink/60">{saved.plan?.totalKcal ?? 0} kcal · {saved.plan?.meals?.length ?? 0} meals</span>
+                </span>
+                <span className="flex items-center gap-4">
+                  <button type="button" onClick={() => openSavedPlan(saved)} className="font-bold text-forest hover:text-terracotta">View</button>
+                  <button type="button" onClick={() => deleteSavedPlan(saved.id)} className="font-bold text-terracotta hover:text-terracotta-dark" aria-label="Delete saved plan">×</button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <div className="grid gap-3">
+        <button type="button" onClick={generatePlan} disabled={generating || !pantry.length || !target}
+          className="justify-self-start rounded-xl bg-terracotta px-6 py-4 text-sm font-bold text-white transition hover:bg-terracotta-dark disabled:opacity-60">
+          {generating ? 'Generating… (up to 1 min)' : 'Generate meal plan'}
+        </button>
+        <p className={`mb-0 min-h-5 text-sm ${status.error ? 'text-red-700' : 'text-forest/70'}`} role="status" aria-live="polite">{status.message}</p>
+      </div>
+
+      {plan && (
+        <section className="grid gap-5">
+          <div className="flex flex-wrap items-end justify-between gap-3 border-b border-forest/15 pb-4">
+            <h2 className="mb-0 font-display text-3xl text-forest">{plan.mode === 'plan' ? 'Your meal plan for the day' : 'Recipes you can make'}</h2>
+            <div className="flex items-center gap-4">
+              <p className="mb-0 text-sm font-semibold text-ink/60">{plan.totalKcal} / {plan.target?.dailyKcal} kcal · {plan.totalProtein} g protein</p>
+              <button type="button" onClick={() => setPlan(null)} className="rounded-xl border border-forest/15 px-4 py-2 text-sm font-bold text-forest transition hover:bg-cream">
+                Close
+              </button>
+            </div>
+          </div>
+          {plan.mode !== 'plan' && <p className="mb-0 text-sm text-ink/60">Your products are not enough for a full day, so here are recipes you can make now.</p>}
+          <div className="grid gap-5 md:grid-cols-2">
+            {(plan.meals || []).map((meal, index) => <MealPlanCard key={`${meal.type}-${index}`} meal={meal} />)}
+          </div>
+          {plan.note && <p className="mb-0 text-sm italic text-ink/60">{plan.note}</p>}
+          <button type="button" onClick={savePlan} disabled={saving || planSaved}
+            className="justify-self-start rounded-xl bg-forest px-5 py-3 text-sm font-bold text-white transition hover:bg-forest-light disabled:opacity-60">
+            {planSaved ? 'Saved' : saving ? 'Saving…' : 'Save this plan'}
+          </button>
+          <p className="mb-0 text-xs text-ink/45">Generated by AI. Nutrition values are calculated from our database and are for guidance only, not medical advice.</p>
+        </section>
+      )}
+    </main>
+  );
+}
+
 function App() {
   const [items, setItems] = useState(initialItems);
   const [loading, setLoading] = useState(true);
@@ -534,6 +781,7 @@ function App() {
                 {user && !isEditor ? 'Add recipe' : 'Add to menu'} <span aria-hidden="true">+</span>
               </button>
             </>}
+            {user && <a href="/planner" className="text-sm font-semibold text-ink/70 no-underline transition hover:text-terracotta">Meal planner</a>}
             {profileLink}
           </nav>
         </div>
@@ -541,6 +789,8 @@ function App() {
 
       {pathname === '/login' || pathname === '/register' ? (
         <AuthPage register={pathname === '/register'} onAuthenticated={setUser} />
+      ) : pathname === '/planner' ? (
+        authLoading ? <main className="mx-auto max-w-2xl px-5 py-16 text-sm text-ink/60" role="status">Loading…</main> : <MealPlannerPage user={user} />
       ) : pathname === '/profile' ? (
         authLoading ? <main className="mx-auto max-w-2xl px-5 py-16 text-sm text-ink/60" role="status">Loading your profile…</main> : (
           <ProfilePage user={user} onLogout={() => setUser(null)} onUserUpdated={setUser} />
