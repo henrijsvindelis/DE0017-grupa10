@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
 
-const initialItems = { recipes: [], foodItems: [] };
+const initialItems = { recipes: [], foodItems: [], recipeTotal: 0, foodTotal: 0 };
 
 function ArrowIcon({ className = 'size-4' }) {
   return (
@@ -21,17 +21,30 @@ function LeafIcon() {
   );
 }
 
-function MenuCard({ item, canDelete, onDelete, deleting }) {
+function MenuCard({ item, canDelete, onDelete, deleting, canEdit, onEdit, className = '' }) {
   const isRecipe = item.type === 'recipe';
 
   return (
-    <article className="group relative rounded-2xl border border-forest/10 bg-white p-6 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-lg">
+    <article className={`group relative rounded-2xl border border-forest/10 bg-white p-6 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-lg ${className}`}>
       <div className="mb-5 flex items-center justify-between">
         <span className="rounded-full bg-sage/60 px-3 py-1 text-xs font-bold uppercase tracking-wider text-forest">
           {isRecipe ? 'Recipe' : 'Food item'}
         </span>
         <div className="flex items-center gap-3">
-          <span className="text-xs font-medium text-ink/45">{isRecipe ? 'From the kitchen' : 'Nutrition'}</span>
+          <span className="text-xs font-medium text-ink/45">
+            {isRecipe ? (item.saves ? `Saved ${item.saves}×` : 'From the kitchen') : 'Nutrition'}
+          </span>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => onEdit(item)}
+              aria-label={`Edit ${item.name}`}
+              title="Edit menu item"
+              className="rounded-full bg-cream px-3 py-1 text-xs font-bold text-forest transition hover:bg-forest hover:text-white"
+            >
+              Edit
+            </button>
+          )}
           {canDelete && (
             <button
               type="button"
@@ -63,7 +76,10 @@ function MenuCard({ item, canDelete, onDelete, deleting }) {
         </>
       ) : (
         <>
-          <p className="text-sm font-semibold text-terracotta">{item.kcal_100g} kcal per 100 g</p>
+          <p className="text-sm font-semibold text-terracotta">
+            {item.kcal_100g} kcal per 100 g
+            {item.verified === false && <span className="ml-2 rounded-full bg-cream px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-ink/50" title="Added by a user, not yet checked by a nutritionist">Unverified</span>}
+          </p>
           <div className="mt-5 grid grid-cols-3 gap-2 border-t border-forest/10 pt-4 text-center">
             {[
               ['Protein', item.protein_100g],
@@ -82,7 +98,27 @@ function MenuCard({ item, canDelete, onDelete, deleting }) {
   );
 }
 
-function MenuGroup({ title, items, loading, type, canDelete, onDelete, deletingId }) {
+function MenuGroup({ title, items, total, loading, type, canDelete, canEdit, onDelete, onEdit, deletingId, carousel = false }) {
+  const trackRef = useRef(null);
+
+  function scrollCards(direction) {
+    const track = trackRef.current;
+    if (track) track.scrollBy({ left: direction * track.clientWidth * 0.9, behavior: 'smooth' });
+  }
+
+  const cards = items.map((item) => (
+    <MenuCard
+      key={item.id}
+      item={item}
+      canDelete={canDelete}
+      canEdit={canEdit}
+      onDelete={onDelete}
+      onEdit={onEdit}
+      deleting={deletingId === item.id}
+      className={carousel ? 'w-[85%] shrink-0 snap-start sm:w-[calc(50%-0.5rem)] xl:w-[calc(33.333%-0.67rem)]' : ''}
+    />
+  ));
+
   return (
     <section aria-labelledby={`${type}-title`}>
       <div className="mb-5 flex items-end justify-between gap-4">
@@ -90,26 +126,30 @@ function MenuGroup({ title, items, loading, type, canDelete, onDelete, deletingI
           <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-terracotta">Made with care</p>
           <h3 id={`${type}-title`} className="font-display text-3xl text-forest">{title}</h3>
         </div>
-        <span className="hidden text-sm text-ink/50 sm:block">{items.length ? `${items.length} on the menu` : 'Fresh ideas welcome'}</span>
+        <div className="flex items-center gap-3">
+          <span className="hidden text-sm text-ink/50 sm:block">{total ? `${total} on the menu` : 'Fresh ideas welcome'}</span>
+          {carousel && items.length > 1 && (
+            <>
+              <button type="button" onClick={() => scrollCards(-1)} aria-label="Previous" className="grid size-10 place-items-center rounded-full border border-forest/15 bg-white text-lg text-forest transition hover:bg-forest hover:text-white">‹</button>
+              <button type="button" onClick={() => scrollCards(1)} aria-label="Next" className="grid size-10 place-items-center rounded-full border border-forest/15 bg-white text-lg text-forest transition hover:bg-forest hover:text-white">›</button>
+            </>
+          )}
+        </div>
       </div>
       {loading ? (
         <p className="rounded-2xl border border-forest/10 bg-white p-6 text-sm text-ink/60" role="status">Loading the menu…</p>
       ) : items.length ? (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {items.map((item) => (
-            <MenuCard
-              key={item.id}
-              item={item}
-              canDelete={canDelete}
-              onDelete={onDelete}
-              deleting={deletingId === item.id}
-            />
-          ))}
-        </div>
+        carousel ? (
+          <div ref={trackRef} className="-mx-2 flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-smooth px-2 pb-4 pt-1 [scrollbar-width:none]">
+            {cards}
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{cards}</div>
+        )
       ) : (
         <div className="rounded-2xl border border-dashed border-forest/20 bg-white/70 px-6 py-10 text-center">
           <p className="mb-2 font-display text-xl text-forest">A place for something delicious</p>
-          <p className="mb-0 text-sm text-ink/55">Nothing here yet. Add the first {type === 'recipe' ? 'recipe' : 'food item'} to get started.</p>
+          <p className="mb-0 text-sm text-ink/55">Nothing here yet. {type === 'recipe' ? 'Recipes appear here when people save meal plans or share their own.' : 'Add the first food item to get started.'}</p>
         </div>
       )}
     </section>
@@ -196,9 +236,11 @@ function profileValuesFrom(formData) {
   return values;
 }
 
-function AddItemDialog({ open, onClose, onSaved, user }) {
+function AddItemDialog({ open, onClose, onSaved, user, item = null }) {
+  const editing = Boolean(item);
   const canAddFood = user.role === 'Admin' || user.role === 'Nutritionist';
-  const [type, setType] = useState(canAddFood ? 'food-item' : 'recipe');
+  const canAddRecipe = user.role !== 'Admin';
+  const [type, setType] = useState(item?.type || (canAddFood ? 'food-item' : 'recipe'));
   const [status, setStatus] = useState({ message: '', error: false });
   const [saving, setSaving] = useState(false);
 
@@ -219,22 +261,22 @@ function AddItemDialog({ open, onClose, onSaved, user }) {
     setSaving(true);
     setStatus({ message: 'Saving your addition…', error: false });
     const formData = new FormData(form);
-    const item = Object.fromEntries(formData.entries());
+    const values = Object.fromEntries(formData.entries());
 
     for (const field of ['kcal_100g', 'protein_100g', 'fat_100g', 'carbohydrates_100g', 'amount_portions', 'caloryperportion']) {
-      if (item[field] !== undefined) item[field] = Number(item[field]);
+      if (values[field] !== undefined) values[field] = Number(values[field]);
     }
 
     try {
-      const response = await fetch('/api/food-items', {
-        method: 'POST',
+      const response = await fetch(editing ? `/api/food-items/${encodeURIComponent(item.id)}` : '/api/food-items', {
+        method: editing ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(item)
+        body: JSON.stringify(values)
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Unable to save this item.');
-      setStatus({ message: 'Added to the menu. Thank you!', error: false });
-      form.reset();
+      setStatus({ message: editing ? 'Changes saved.' : 'Added to the menu. Thank you!', error: false });
+      if (!editing) form.reset();
       await onSaved();
       window.setTimeout(onClose, 650);
     } catch (error) {
@@ -252,13 +294,14 @@ function AddItemDialog({ open, onClose, onSaved, user }) {
       <section role="dialog" aria-modal="true" aria-labelledby="dialog-title" className="my-auto w-full max-w-xl rounded-3xl bg-white p-6 shadow-2xl sm:p-9">
         <div className="mb-7 flex items-start justify-between gap-4">
           <div>
-            <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-terracotta">Share something good</p>
-            <h2 id="dialog-title" className="font-display text-3xl text-forest sm:text-4xl">Add to the menu</h2>
+            <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-terracotta">{editing ? 'Keep the menu tidy' : 'Share something good'}</p>
+            <h2 id="dialog-title" className="font-display text-3xl text-forest sm:text-4xl">{editing ? `Edit ${item.type === 'recipe' ? 'recipe' : 'food item'}` : 'Add to the menu'}</h2>
           </div>
           <button type="button" onClick={onClose} disabled={saving} aria-label="Close dialog" className="grid size-10 shrink-0 place-items-center rounded-full bg-cream text-xl text-forest transition hover:bg-sage disabled:opacity-50">×</button>
         </div>
 
         <form className="grid gap-5" onSubmit={handleSubmit}>
+          {editing ? <input type="hidden" name="type" value={type} /> : (canAddFood && canAddRecipe) ? (
           <label className="block text-sm font-semibold text-forest">
             What are you adding?
             <select
@@ -268,32 +311,165 @@ function AddItemDialog({ open, onClose, onSaved, user }) {
               className="mt-2 w-full rounded-xl border border-forest/15 bg-cream/60 px-4 py-3 text-sm outline-none focus:border-forest focus:ring-4 focus:ring-forest/10"
             >
               {canAddFood && <option value="food-item">Food item</option>}
-              <option value="recipe">Recipe</option>
+              {canAddRecipe && <option value="recipe">Recipe</option>}
             </select>
           </label>
-          <FormField label="Name" name="name" maxLength={100} />
+          ) : <input type="hidden" name="type" value={type} />}
+          <FormField label="Name" name="name" maxLength={100} defaultValue={item?.name ?? ''} />
           {type === 'food-item' ? (
             <fieldset className="grid gap-4 border-0 p-0 sm:grid-cols-2">
               <legend className="mb-1 text-sm font-semibold text-forest">Nutrition per 100 g</legend>
-              <FormField label="Calories (kcal)" name="kcal_100g" type="number" min="0" step="any" />
-              <FormField label="Protein (g)" name="protein_100g" type="number" min="0" step="any" />
-              <FormField label="Fat (g)" name="fat_100g" type="number" min="0" step="any" />
-              <FormField label="Carbohydrates (g)" name="carbohydrates_100g" type="number" min="0" step="any" />
+              <FormField label="Calories (kcal)" name="kcal_100g" type="number" min="0" step="any" defaultValue={item?.kcal_100g ?? ''} />
+              <FormField label="Protein (g)" name="protein_100g" type="number" min="0" step="any" defaultValue={item?.protein_100g ?? ''} />
+              <FormField label="Fat (g)" name="fat_100g" type="number" min="0" step="any" defaultValue={item?.fat_100g ?? ''} />
+              <FormField label="Carbohydrates (g)" name="carbohydrates_100g" type="number" min="0" step="any" defaultValue={item?.carbohydrates_100g ?? ''} />
             </fieldset>
           ) : (
             <fieldset className="grid gap-4 border-0 p-0 sm:grid-cols-2">
               <legend className="mb-1 text-sm font-semibold text-forest">Recipe details</legend>
-              <div className="sm:col-span-2"><FormField label="Description (optional)" name="description" type="textarea" required={false} maxLength={2000} /></div>
-              <div className="sm:col-span-2"><FormField label="Cooking steps" name="cooking_steps" type="textarea" /></div>
-              <FormField label="Amount of portions" name="amount_portions" type="number" min="1" step="1" />
-              <FormField label="Calories per portion (kcal)" name="caloryperportion" type="number" min="0" step="any" />
+              <div className="sm:col-span-2"><FormField label="Description (optional)" name="description" type="textarea" required={false} maxLength={2000} defaultValue={item?.description ?? ''} /></div>
+              <div className="sm:col-span-2"><FormField label="Cooking steps" name="cooking_steps" type="textarea" defaultValue={item?.cooking_steps ?? ''} /></div>
+              <FormField label="Amount of portions" name="amount_portions" type="number" min="1" step="1" defaultValue={item?.amount_portions ?? ''} />
+              <FormField label="Calories per portion (kcal)" name="caloryperportion" type="number" min="0" step="any" defaultValue={item?.caloryperportion ?? ''} />
             </fieldset>
           )}
           <p className={`min-h-5 text-sm ${status.error ? 'text-red-700' : 'text-forest/70'}`} role="status" aria-live="polite">{status.message}</p>
           <div className="flex justify-end gap-3">
             <button type="button" onClick={onClose} disabled={saving} className="rounded-xl border border-forest/20 px-5 py-3 text-sm font-bold text-forest transition hover:bg-cream disabled:opacity-50">Cancel</button>
             <button type="submit" disabled={saving} className="rounded-xl bg-terracotta px-5 py-3 text-sm font-bold text-white transition hover:bg-terracotta-dark disabled:cursor-wait disabled:opacity-60">
-              {saving ? 'Saving…' : 'Add to the menu'}
+              {saving ? 'Saving…' : editing ? 'Save changes' : 'Add to the menu'}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+const nutritionLabels = [
+  ['kcal_100g', 'Calories (kcal)'],
+  ['protein_100g', 'Protein (g)'],
+  ['fat_100g', 'Fat (g)'],
+  ['carbohydrates_100g', 'Carbohydrates (g)']
+];
+const emptyNutrition = { kcal_100g: '', protein_100g: '', fat_100g: '', carbohydrates_100g: '' };
+
+function AddProductDialog({ open, onClose, onSaved }) {
+  const [products, setProducts] = useState([]);
+  const [name, setName] = useState('');
+  const [amount, setAmount] = useState('');
+  const [unit, setUnit] = useState('g');
+  const [nutrition, setNutrition] = useState(emptyNutrition);
+  const [prefilled, setPrefilled] = useState(false);
+  const [status, setStatus] = useState({ message: '', error: false });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    fetch('/api/products').then((response) => response.json()).then((result) => setProducts(result.products || [])).catch(() => {});
+    function handleKeyDown(event) {
+      if (event.key === 'Escape' && !saving) onClose();
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [open, saving, onClose]);
+
+  if (!open) return null;
+
+  function handleNameChange(value) {
+    setName(value);
+    const match = products.find((product) => product.verified && product.name.toLowerCase() === value.trim().toLowerCase());
+    if (match) {
+      setNutrition(Object.fromEntries(nutritionLabels.map(([field]) => [field, String(match[field])])));
+      setPrefilled(true);
+    } else if (prefilled) {
+      setNutrition(emptyNutrition);
+      setPrefilled(false);
+    }
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setStatus({ message: 'Saving…', error: false });
+    const grams = unit === 'kg' ? Number(amount) * 1000 : Number(amount);
+    try {
+      const response = await fetch('/api/pantry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name.trim(),
+          grams,
+          nutrition: Object.fromEntries(nutritionLabels.map(([field]) => [field, Number(nutrition[field])]))
+        })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to add this product.');
+      setStatus({ message: 'Added to your products.', error: false });
+      await onSaved?.(result.pantry);
+      window.setTimeout(onClose, 650);
+    } catch (error) {
+      setStatus({ message: error.message, error: true });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const inputClass = 'mt-2 w-full rounded-xl border border-forest/15 bg-cream/60 px-4 py-3 text-sm text-ink outline-none transition focus:border-forest focus:ring-4 focus:ring-forest/10';
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-forest/65 p-4 backdrop-blur-sm"
+      onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) onClose(); }}
+    >
+      <section role="dialog" aria-modal="true" aria-labelledby="product-dialog-title" className="my-auto w-full max-w-xl rounded-3xl bg-white p-6 shadow-2xl sm:p-9">
+        <div className="mb-7 flex items-start justify-between gap-4">
+          <div>
+            <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-terracotta">What do you have at home?</p>
+            <h2 id="product-dialog-title" className="font-display text-3xl text-forest sm:text-4xl">Add a product</h2>
+          </div>
+          <button type="button" onClick={onClose} disabled={saving} aria-label="Close dialog" className="grid size-10 shrink-0 place-items-center rounded-full bg-cream text-xl text-forest transition hover:bg-sage disabled:opacity-50">×</button>
+        </div>
+
+        <form className="grid gap-5" onSubmit={handleSubmit}>
+          <label className="block text-sm font-semibold text-forest">
+            Product name
+            <input className={inputClass} list="product-suggestions" value={name} onChange={(event) => handleNameChange(event.target.value)} maxLength={100} required autoComplete="off" />
+            <datalist id="product-suggestions">
+              {products.map((product) => <option key={product.id} value={product.name} />)}
+            </datalist>
+          </label>
+
+          <div className="grid grid-cols-[1fr_110px] gap-4">
+            <label className="block text-sm font-semibold text-forest">
+              Amount you have
+              <input className={inputClass} type="number" min={unit === 'kg' ? '0.001' : '1'} step="any" value={amount} onChange={(event) => setAmount(event.target.value)} required />
+            </label>
+            <label className="block text-sm font-semibold text-forest">
+              Unit
+              <select className={inputClass} value={unit} onChange={(event) => setUnit(event.target.value)}>
+                <option value="g">g</option>
+                <option value="kg">kg</option>
+              </select>
+            </label>
+          </div>
+
+          <fieldset className="grid gap-4 border-0 p-0 sm:grid-cols-2">
+            <legend className="mb-1 text-sm font-semibold text-forest">Nutrition per 100 g (from the package)</legend>
+            {nutritionLabels.map(([field, label]) => (
+              <label key={field} className="block text-sm font-semibold text-forest">
+                {label}
+                <input className={inputClass} type="number" min="0" step="any" value={nutrition[field]} onChange={(event) => setNutrition((current) => ({ ...current, [field]: event.target.value }))} required />
+              </label>
+            ))}
+          </fieldset>
+          {prefilled && <p className="-mt-2 mb-0 text-xs text-ink/55">Filled in from our checked database. Change the values if your package says otherwise.</p>}
+
+          <p className={`min-h-5 text-sm ${status.error ? 'text-red-700' : 'text-forest/70'}`} role="status" aria-live="polite">{status.message}</p>
+          <div className="flex justify-end gap-3">
+            <button type="button" onClick={onClose} disabled={saving} className="rounded-xl border border-forest/20 px-5 py-3 text-sm font-bold text-forest transition hover:bg-cream disabled:opacity-50">Cancel</button>
+            <button type="submit" disabled={saving} className="rounded-xl bg-terracotta px-5 py-3 text-sm font-bold text-white transition hover:bg-terracotta-dark disabled:cursor-wait disabled:opacity-60">
+              {saving ? 'Saving…' : 'Add product'}
             </button>
           </div>
         </form>
@@ -472,13 +648,43 @@ function MealPlanCard({ meal }) {
   );
 }
 
+function PantryRow({ entry, onUpdate, onRemove }) {
+  const startUnit = entry.grams >= 1000 ? 'kg' : 'g';
+  const [unit, setUnit] = useState(startUnit);
+  const [amount, setAmount] = useState(String(startUnit === 'kg' ? entry.grams / 1000 : entry.grams));
+  const grams = Math.round(unit === 'kg' ? Number(amount) * 1000 : Number(amount));
+  const changed = Number.isFinite(grams) && grams > 0 && grams !== entry.grams;
+
+  function changeUnit(nextUnit) {
+    const value = Number(amount);
+    if (Number.isFinite(value)) setAmount(String(nextUnit === 'kg' ? value / 1000 : value * 1000));
+    setUnit(nextUnit);
+  }
+
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-cream/60 px-4 py-3 text-sm">
+      <span className="font-semibold text-forest">
+        {entry.name}
+        <span className="ml-2 font-normal text-ink/50">{entry.kcal_100g} kcal / 100 g{entry.ownValues ? ' · your values' : ''}</span>
+      </span>
+      <span className="flex items-center gap-2 text-ink/60">
+        <input aria-label={`Amount of ${entry.name}`} className="w-24 rounded-lg border border-forest/15 bg-white px-2 py-1.5 text-right text-sm text-ink" type="number" min="0" step="any" value={amount} onChange={(event) => setAmount(event.target.value)} />
+        <select aria-label="Unit" className="rounded-lg border border-forest/15 bg-white px-2 py-1.5 text-sm text-ink" value={unit} onChange={(event) => changeUnit(event.target.value)}>
+          <option value="g">g</option>
+          <option value="kg">kg</option>
+        </select>
+        {changed && <button type="button" onClick={() => onUpdate(entry.foodItemId, grams)} className="rounded-lg bg-forest px-3 py-1.5 text-xs font-bold text-white hover:bg-forest-light">Save</button>}
+        <button type="button" onClick={() => onRemove(entry.foodItemId)} className="ml-1 font-bold text-terracotta hover:text-terracotta-dark" aria-label={`Remove ${entry.name}`}>×</button>
+      </span>
+    </li>
+  );
+}
+
 function MealPlannerPage({ user }) {
   const [target, setTarget] = useState(null);
   const [targetError, setTargetError] = useState('');
   const [pantry, setPantry] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [selectedId, setSelectedId] = useState('');
-  const [grams, setGrams] = useState('500');
+  const [productDialogOpen, setProductDialogOpen] = useState(false);
   const [status, setStatus] = useState({ message: '', error: false });
   const [plan, setPlan] = useState(null);
   const [generating, setGenerating] = useState(false);
@@ -490,21 +696,16 @@ function MealPlannerPage({ user }) {
     if (!user) return;
     requestJson('/api/nutrition/target').then(setTarget).catch((error) => setTargetError(error.message));
     requestJson('/api/pantry').then((result) => setPantry(result.pantry)).catch(() => {});
-    requestJson('/api/products').then((result) => {
-      setProducts(result.products);
-      if (result.products.length) setSelectedId(result.products[0].id);
-    }).catch(() => {});
     requestJson('/api/meal-plans').then((result) => setSavedPlans(result.plans.filter((saved) => saved.plan?.meals))).catch(() => {});
   }, [user]);
 
-  async function addToPantry(event) {
-    event.preventDefault();
+  async function updatePantryAmount(foodItemId, grams) {
     setStatus({ message: '', error: false });
     try {
-      const result = await requestJson('/api/pantry', {
-        method: 'POST',
+      const result = await requestJson(`/api/pantry/${encodeURIComponent(foodItemId)}`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ foodItemId: selectedId, grams: Number(grams) })
+        body: JSON.stringify({ grams })
       });
       setPantry(result.pantry);
     } catch (error) {
@@ -585,6 +786,7 @@ function MealPlannerPage({ user }) {
         <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-terracotta">Meal planner</p>
         <h1 className="font-display text-4xl text-forest sm:text-5xl">Plan your day from what you have.</h1>
       </div>
+      <AddProductDialog open={productDialogOpen} onClose={() => setProductDialogOpen(false)} onSaved={(nextPantry) => nextPantry && setPantry(nextPantry)} />
 
       <section className="rounded-3xl border border-forest/10 bg-white p-7 shadow-sm">
         <h2 className="mb-4 font-display text-2xl text-forest">Your daily target</h2>
@@ -600,34 +802,17 @@ function MealPlannerPage({ user }) {
       </section>
 
       <section className="rounded-3xl border border-forest/10 bg-white p-7 shadow-sm">
-        <h2 className="mb-4 font-display text-2xl text-forest">My products</h2>
-        {products.length ? (
-          <form className="mb-6 grid gap-4 sm:grid-cols-[1fr_140px_auto] sm:items-end" onSubmit={addToPantry}>
-            <label className="block text-sm font-semibold text-forest">Product
-              <select className={inputClass} value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>
-                {products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
-              </select>
-            </label>
-            <label className="block text-sm font-semibold text-forest">Grams
-              <input className={inputClass} type="number" min="1" max="100000" value={grams} onChange={(event) => setGrams(event.target.value)} required />
-            </label>
-            <button type="submit" className="rounded-xl bg-forest px-5 py-3 text-sm font-bold text-white transition hover:bg-forest-light">Add</button>
-          </form>
-        ) : <p className="text-sm text-ink/60">No products in the database yet. A nutritionist or admin can add them from the menu page.</p>}
-
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="mb-0 font-display text-2xl text-forest">My products</h2>
+          <button type="button" onClick={() => setProductDialogOpen(true)} className="rounded-xl bg-forest px-5 py-3 text-sm font-bold text-white transition hover:bg-forest-light">Add product +</button>
+        </div>
         {pantry.length ? (
           <ul className="mb-0 grid gap-2">
             {pantry.map((entry) => (
-              <li key={entry.foodItemId} className="flex items-center justify-between gap-3 rounded-xl bg-cream/60 px-4 py-3 text-sm">
-                <span className="font-semibold text-forest">{entry.name}</span>
-                <span className="flex items-center gap-4 text-ink/60">
-                  {entry.grams} g
-                  <button type="button" onClick={() => removeFromPantry(entry.foodItemId)} className="font-bold text-terracotta hover:text-terracotta-dark" aria-label={`Remove ${entry.name}`}>×</button>
-                </span>
-              </li>
+              <PantryRow key={`${entry.foodItemId}-${entry.grams}`} entry={entry} onUpdate={updatePantryAmount} onRemove={removeFromPantry} />
             ))}
           </ul>
-        ) : <p className="mb-0 text-sm text-ink/60">Add the products you have at home.</p>}
+        ) : <p className="mb-0 text-sm text-ink/60">Add the products you have at home, with the nutrition values from the package.</p>}
       </section>
 
       {savedPlans.length > 0 && (
@@ -691,6 +876,8 @@ function App() {
   const [menuError, setMenuError] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deletingId, setDeletingId] = useState('');
+  const [editingItem, setEditingItem] = useState(null);
+  const [productDialogOpen, setProductDialogOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [pathname, setPathname] = useState(window.location.pathname);
@@ -699,8 +886,8 @@ function App() {
     setMenuError('');
     try {
       const [recipesResponse, foodItemsResponse] = await Promise.all([
-        fetch('/api/food-items?type=recipe'),
-        fetch('/api/food-items?type=food-item')
+        fetch('/api/food-items?type=recipe&sort=popular&limit=6'),
+        fetch('/api/food-items?type=food-item&limit=50')
       ]);
       const [recipesResult, foodItemsResult] = await Promise.all([
         recipesResponse.json(),
@@ -709,7 +896,12 @@ function App() {
       if (!recipesResponse.ok || !foodItemsResponse.ok) {
         throw new Error(recipesResult.error || foodItemsResult.error || 'Unable to load menu items.');
       }
-      setItems({ recipes: recipesResult.items, foodItems: foodItemsResult.items });
+      setItems({
+        recipes: recipesResult.items,
+        foodItems: foodItemsResult.items,
+        recipeTotal: recipesResult.total ?? recipesResult.items.length,
+        foodTotal: foodItemsResult.total ?? foodItemsResult.items.length
+      });
     } catch (error) {
       setMenuError(`${error.message || 'Unable to load menu items.'} Saved items will appear when the database is available.`);
     } finally {
@@ -755,6 +947,24 @@ function App() {
   }, [pathname]);
 
   const isEditor = user?.role === 'Admin' || user?.role === 'Nutritionist';
+  const addButtonLabel = !user || user.role === 'User' ? 'Add product' : user.role === 'Admin' ? 'Add food item' : 'Add to menu';
+
+  function openAddDialog() {
+    if (!user) return window.location.assign('/login');
+    setEditingItem(null);
+    if (isEditor) setDialogOpen(true);
+    else setProductDialogOpen(true);
+  }
+
+  function openEditDialog(item) {
+    setEditingItem(item);
+    setDialogOpen(true);
+  }
+
+  function closeDialog() {
+    setDialogOpen(false);
+    setEditingItem(null);
+  }
   const profileLink = user ? (
     <a href="/profile" className="rounded-xl bg-forest px-4 py-3 text-xs font-bold text-white no-underline transition hover:bg-forest-light sm:px-5 sm:text-sm">
       Profile
@@ -777,8 +987,8 @@ function App() {
             {pathname === '/' && <>
               <a className="hidden text-sm font-semibold text-ink/70 transition hover:text-terracotta sm:inline" href="#menu">The menu</a>
               <a className="hidden text-sm font-semibold text-ink/70 transition hover:text-terracotta md:inline" href="#approach">Our approach</a>
-              <button type="button" onClick={() => user ? setDialogOpen(true) : window.location.assign('/login')} className="rounded-xl bg-terracotta px-3 py-2.5 text-xs font-bold text-white transition hover:bg-terracotta-dark sm:px-4 sm:py-2.5 sm:text-sm">
-                {user && !isEditor ? 'Add recipe' : 'Add to menu'} <span aria-hidden="true">+</span>
+              <button type="button" onClick={openAddDialog} className="rounded-xl bg-terracotta px-3 py-2.5 text-xs font-bold text-white transition hover:bg-terracotta-dark sm:px-4 sm:py-2.5 sm:text-sm">
+                {addButtonLabel} <span aria-hidden="true">+</span>
               </button>
             </>}
             {user && <a href="/planner" className="text-sm font-semibold text-ink/70 no-underline transition hover:text-terracotta">Meal planner</a>}
@@ -838,8 +1048,8 @@ function App() {
               </p>
             )}
             <div className="grid gap-14">
-              <MenuGroup title="Latest recipes" items={items.recipes} loading={loading} type="recipe" canDelete={isEditor} onDelete={deleteMenuItem} deletingId={deletingId} />
-              <MenuGroup title="Latest food items" items={items.foodItems} loading={loading} type="food" canDelete={isEditor} onDelete={deleteMenuItem} deletingId={deletingId} />
+              <MenuGroup title="Popular recipes" items={items.recipes} total={items.recipeTotal} loading={loading} type="recipe" canDelete={isEditor} canEdit={isEditor} onDelete={deleteMenuItem} onEdit={openEditDialog} deletingId={deletingId} />
+              <MenuGroup title="Food items" items={items.foodItems} total={items.foodTotal} loading={loading} type="food" canDelete={isEditor} canEdit={isEditor} onDelete={deleteMenuItem} onEdit={openEditDialog} deletingId={deletingId} carousel />
             </div>
           </div>
         </section>
@@ -862,9 +1072,14 @@ function App() {
         </div>
       </footer>
 
-      {user && <AddItemDialog open={dialogOpen} onClose={() => setDialogOpen(false)} onSaved={loadMenuItems} user={user} />}
+      {user && isEditor && <AddItemDialog key={editingItem?.id || 'new'} open={dialogOpen} onClose={closeDialog} onSaved={loadMenuItems} user={user} item={editingItem} />}
+      {user && <AddProductDialog open={productDialogOpen} onClose={() => setProductDialogOpen(false)} onSaved={loadMenuItems} />}
     </div>
   );
 }
+
+document.addEventListener('wheel', () => {
+  if (document.activeElement?.type === 'number') document.activeElement.blur();
+}, { passive: true });
 
 createRoot(document.getElementById('root')).render(<App />);

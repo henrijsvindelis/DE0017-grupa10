@@ -101,6 +101,25 @@ const foodItemSchema = new mongoose.Schema({
     type: Number,
     min: 0,
     required: function () { return this.type === 'recipe'; }
+  },
+  saves: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  source: {
+    type: String,
+    enum: ['user', 'ai'],
+    default: 'user'
+  },
+  // Admin/Nutritionist pievienotie produkti ir pārbaudīti; lietotāju pievienotie – nē, līdz tos pārbauda
+  verified: {
+    type: Boolean,
+    default: true
+  },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
   }
 }, { timestamps: true });
 
@@ -321,7 +340,12 @@ app.get('/api/food-items', async (request, response) => {
   }
 
   try {
-    const items = await FoodItem.find({ type }).sort({ createdAt: -1 }).limit(3).lean();
+    const limit = Math.min(Math.max(Number.parseInt(request.query.limit, 10) || 3, 1), 50);
+    const sort = request.query.sort === 'popular' ? { saves: -1, createdAt: -1 } : { createdAt: -1 };
+    const [items, total] = await Promise.all([
+      FoodItem.find({ type }).sort(sort).limit(limit).lean(),
+      FoodItem.countDocuments({ type })
+    ]);
     const results = items.map((item) => {
       const savedItem = {
         id: item.id,
@@ -334,80 +358,124 @@ app.get('/api/food-items', async (request, response) => {
           kcal_100g: item.kcal_100g,
           protein_100g: item.protein_100g,
           fat_100g: item.fat_100g,
-          carbohydrates_100g: item.carbohydrates_100g
+          carbohydrates_100g: item.carbohydrates_100g,
+          verified: item.verified !== false
         });
       } else {
         Object.assign(savedItem, {
           ...(item.description ? { description: item.description } : {}),
           cooking_steps: item.cooking_steps,
           amount_portions: item.amount_portions,
-          caloryperportion: item.caloryperportion
+          caloryperportion: item.caloryperportion,
+          saves: item.saves || 0,
+          source: item.source || 'user'
         });
       }
 
       return savedItem;
     });
 
-    return response.json({ items: results });
+    return response.json({ items: results, total });
   } catch (error) {
     console.error(`Food item lookup failed: ${error.message}`);
     return response.status(500).json({ error: 'Unable to load menu items. Please try again.' });
   }
 });
 
+// Pārbauda produkta vai receptes laukus un atgriež saglabājamos datus (vai null, ja nederīgi)
+function menuItemData(type, body) {
+  const validNumber = (value) => typeof value === 'number' && Number.isFinite(value);
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  if (name.length < 1 || name.length > 100) return null;
+
+  if (type === 'food-item') {
+    const valid = ['kcal_100g', 'protein_100g', 'fat_100g', 'carbohydrates_100g']
+      .every((field) => validNumber(body[field]) && body[field] >= 0);
+    if (!valid) return null;
+    return {
+      name,
+      kcal_100g: body.kcal_100g,
+      protein_100g: body.protein_100g,
+      fat_100g: body.fat_100g,
+      carbohydrates_100g: body.carbohydrates_100g
+    };
+  }
+
+  if (type === 'recipe') {
+    const valid = typeof body.cooking_steps === 'string' &&
+      body.cooking_steps.trim().length > 0 &&
+      Number.isInteger(body.amount_portions) &&
+      body.amount_portions > 0 &&
+      validNumber(body.caloryperportion) &&
+      body.caloryperportion >= 0 &&
+      (body.description === undefined ||
+        (typeof body.description === 'string' && body.description.length <= 2000));
+    if (!valid) return null;
+    return {
+      name,
+      description: body.description?.trim() || '',
+      cooking_steps: body.cooking_steps.trim(),
+      amount_portions: body.amount_portions,
+      caloryperportion: body.caloryperportion
+    };
+  }
+
+  return null;
+}
+
+const isMenuEditor = (user) => user.role === 'Admin' || user.role === 'Nutritionist';
+
 app.post('/api/food-items', requireUser, async (request, response) => {
   const body = request.body || {};
-  const { type, name } = body;
-  if (type === 'food-item' &&
-    request.user.role !== 'Admin' &&
-    request.user.role !== 'Nutritionist') {
+  const { type } = body;
+  if (type === 'food-item' && !isMenuEditor(request.user)) {
     return response.status(403).json({ error: 'Only admins and nutritionists can add food items.' });
   }
-  const validTypes = ['food-item', 'recipe'];
-  const validNumber = (value) => typeof value === 'number' && Number.isFinite(value);
-  const validName = typeof name === 'string' && name.trim().length >= 1 && name.trim().length <= 100;
-  const validFoodItem = ['kcal_100g', 'protein_100g', 'fat_100g', 'carbohydrates_100g']
-    .every((field) => validNumber(body[field]) && body[field] >= 0);
-  const validRecipe = typeof body.cooking_steps === 'string' &&
-    body.cooking_steps.trim().length > 0 &&
-    Number.isInteger(body.amount_portions) &&
-    body.amount_portions > 0 &&
-    validNumber(body.caloryperportion) &&
-    body.caloryperportion >= 0 &&
-    (body.description === undefined ||
-      (typeof body.description === 'string' && body.description.length <= 2000));
+  if (type === 'recipe' && request.user.role === 'Admin') {
+    return response.status(403).json({ error: 'Admins manage the menu. Recipes are added by users and nutritionists.' });
+  }
 
-  if (!validTypes.includes(type) || !validName ||
-    (type === 'food-item' && !validFoodItem) ||
-    (type === 'recipe' && !validRecipe)) {
+  const data = menuItemData(type, body);
+  if (!data) {
     return response.status(400).json({ error: 'Please provide valid values for all required fields.' });
   }
 
   try {
-    const data = type === 'food-item'
-      ? {
-          type,
-          name: name.trim(),
-          kcal_100g: body.kcal_100g,
-          protein_100g: body.protein_100g,
-          fat_100g: body.fat_100g,
-          carbohydrates_100g: body.carbohydrates_100g
-        }
-      : {
-          type,
-          name: name.trim(),
-          ...(body.description?.trim() ? { description: body.description.trim() } : {}),
-          cooking_steps: body.cooking_steps.trim(),
-          amount_portions: body.amount_portions,
-          caloryperportion: body.caloryperportion
-        };
-    const item = await FoodItem.create(data);
+    const item = await FoodItem.create({ type, ...data, source: 'user', verified: true, createdBy: request.user._id });
     const savedItem = item.toObject({ versionKey: false });
     delete savedItem._id;
     return response.status(201).json({ item: savedItem });
   } catch (error) {
     console.error(`Food item save failed: ${error.message}`);
     return response.status(500).json({ error: 'Unable to save this item. Please try again.' });
+  }
+});
+
+app.patch('/api/food-items/:id', requireUser, async (request, response) => {
+  if (!isMenuEditor(request.user)) {
+    return response.status(403).json({ error: 'Only admins and nutritionists can edit menu items.' });
+  }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(request.params.id)) {
+    return response.status(400).json({ error: 'Invalid menu item ID.' });
+  }
+
+  try {
+    const item = await FoodItem.findOne({ id: request.params.id });
+    if (!item) return response.status(404).json({ error: 'Menu item not found.' });
+
+    const data = menuItemData(item.type, request.body || {});
+    if (!data) {
+      return response.status(400).json({ error: 'Please provide valid values for all required fields.' });
+    }
+
+    item.set(item.type === 'food-item' ? { ...data, verified: true } : data);
+    await item.save();
+    const savedItem = item.toObject({ versionKey: false });
+    delete savedItem._id;
+    return response.json({ item: savedItem });
+  } catch (error) {
+    console.error(`Menu item update failed: ${error.message}`);
+    return response.status(500).json({ error: 'Unable to update this menu item. Please try again.' });
   }
 });
 
@@ -477,7 +545,12 @@ app.get('/api/nutrition/target', requireUser, (request, response) => {
 const pantrySchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   foodItemId: { type: String, required: true },
-  grams: { type: Number, required: true, min: 1, max: 100000 }
+  grams: { type: Number, required: true, min: 1, max: 100000 },
+  // Lietotāja paša uzturvērtība (no iepakojuma); ja nav norādīta, izmanto produkta datubāzes vērtības
+  kcal_100g: { type: Number, min: 0 },
+  protein_100g: { type: Number, min: 0 },
+  fat_100g: { type: Number, min: 0 },
+  carbohydrates_100g: { type: Number, min: 0 }
 }, { timestamps: true });
 pantrySchema.index({ user: 1, foodItemId: 1 }, { unique: true });
 const Pantry = mongoose.model('Pantry', pantrySchema);
@@ -493,7 +566,7 @@ app.get('/api/products', requireUser, asyncRoute(async (request, response) => {
   const products = await FoodItem.find(filter).sort({ name: 1 }).limit(50).lean();
   return response.json({ products: products.map((p) => ({
     id: p.id, name: p.name, kcal_100g: p.kcal_100g, protein_100g: p.protein_100g,
-    fat_100g: p.fat_100g, carbohydrates_100g: p.carbohydrates_100g
+    fat_100g: p.fat_100g, carbohydrates_100g: p.carbohydrates_100g, verified: p.verified !== false
   })) });
 }));
 
@@ -507,8 +580,11 @@ async function loadPantry(userId) {
       const item = byId.get(entry.foodItemId);
       return {
         foodItemId: entry.foodItemId, name: item.name, grams: entry.grams,
-        kcal_100g: item.kcal_100g, protein_100g: item.protein_100g,
-        fat_100g: item.fat_100g, carbohydrates_100g: item.carbohydrates_100g
+        kcal_100g: entry.kcal_100g ?? item.kcal_100g,
+        protein_100g: entry.protein_100g ?? item.protein_100g,
+        fat_100g: entry.fat_100g ?? item.fat_100g,
+        carbohydrates_100g: entry.carbohydrates_100g ?? item.carbohydrates_100g,
+        ownValues: entry.kcal_100g !== undefined && entry.kcal_100g !== null
       };
     });
 }
@@ -517,21 +593,76 @@ app.get('/api/pantry', requireUser, asyncRoute(async (request, response) => {
   return response.json({ pantry: await loadPantry(request.user._id) });
 }));
 
+const nutritionFields = ['kcal_100g', 'protein_100g', 'fat_100g', 'carbohydrates_100g'];
+
+// Pārbauda uzturvērtību no iepakojuma: vai skaitļi ir iespējami un vai kalorijas sakrīt ar makroelementiem
+function parseNutrition(input) {
+  const values = {};
+  for (const field of nutritionFields) {
+    const value = Number(input?.[field]);
+    if (!Number.isFinite(value) || value < 0) return { error: 'Uzturvērtībai jābūt skaitļiem, kas nav mazāki par 0.' };
+    values[field] = Math.round(value * 10) / 10;
+  }
+  if (values.kcal_100g > 900) return { error: 'Kalorijas uz 100 g nevar būt vairāk par 900.' };
+  if (values.protein_100g + values.fat_100g + values.carbohydrates_100g > 101) {
+    return { error: 'Olbaltumvielas, tauki un ogļhidrāti kopā nevar pārsniegt 100 g uz 100 g.' };
+  }
+  const calculated = 4 * values.protein_100g + 4 * values.carbohydrates_100g + 9 * values.fat_100g;
+  if (Math.abs(values.kcal_100g - calculated) > Math.max(40, values.kcal_100g * 0.35)) {
+    return { error: `Kalorijas (${values.kcal_100g}) nesakrīt ar olbaltumvielām, taukiem un ogļhidrātiem (~${Math.round(calculated)} kcal). Pārbaudi vērtības uz iepakojuma.` };
+  }
+  return { values };
+}
+
 app.post('/api/pantry', requireUser, asyncRoute(async (request, response) => {
-  const foodItemId = String(request.body.foodItemId || '');
   const grams = Number(request.body.grams);
   if (!Number.isFinite(grams) || grams < 1 || grams > 100000) {
-    return response.status(400).json({ error: 'Daudzumam jābūt no 1 līdz 100000 gramiem.' });
+    return response.status(400).json({ error: 'Daudzumam jābūt no 1 g līdz 100 kg.' });
   }
-  const product = await FoodItem.findOne({ id: foodItemId, type: 'food-item' }).lean();
-  if (!product) return response.status(404).json({ error: 'Produkts nav atrasts.' });
 
-  await Pantry.findOneAndUpdate(
-    { user: request.user._id, foodItemId },
-    { $set: { grams: Math.round(grams) } },
-    { upsert: true }
-  );
+  let nutrition = null;
+  if (request.body.nutrition) {
+    const parsed = parseNutrition(request.body.nutrition);
+    if (parsed.error) return response.status(400).json({ error: parsed.error });
+    nutrition = parsed.values;
+  }
+
+  const name = String(request.body.name || '').trim().slice(0, 100);
+  let product = null;
+  if (request.body.foodItemId) {
+    product = await FoodItem.findOne({ id: String(request.body.foodItemId), type: 'food-item' }).lean();
+  }
+  if (!product && name) {
+    product = await FoodItem.findOne({ type: 'food-item', name: { $regex: `^${escapeRegex(name)}$`, $options: 'i' } }).lean();
+  }
+  if (!product) {
+    if (!name) return response.status(400).json({ error: 'Ievadi produkta nosaukumu.' });
+    if (!nutrition) return response.status(400).json({ error: 'Jaunam produktam norādi uzturvērtību uz 100 g.' });
+    // Jauns nosaukums nonāk kopīgajā datubāzē kā nepārbaudīts produkts
+    const created = await FoodItem.create({
+      type: 'food-item', name, ...nutrition, verified: false, source: 'user', createdBy: request.user._id
+    });
+    product = created.toObject();
+  }
+
+  const update = nutrition
+    ? { $set: { grams: Math.round(grams), ...nutrition } }
+    : { $set: { grams: Math.round(grams) }, $unset: Object.fromEntries(nutritionFields.map((f) => [f, 1])) };
+  await Pantry.findOneAndUpdate({ user: request.user._id, foodItemId: product.id }, update, { upsert: true });
   return response.status(201).json({ pantry: await loadPantry(request.user._id) });
+}));
+
+app.patch('/api/pantry/:foodItemId', requireUser, asyncRoute(async (request, response) => {
+  const grams = Number(request.body.grams);
+  if (!Number.isFinite(grams) || grams < 1 || grams > 100000) {
+    return response.status(400).json({ error: 'Daudzumam jābūt no 1 g līdz 100 kg.' });
+  }
+  const result = await Pantry.updateOne(
+    { user: request.user._id, foodItemId: request.params.foodItemId },
+    { $set: { grams: Math.round(grams) } }
+  );
+  if (!result.matchedCount) return response.status(404).json({ error: 'Produkts nav tavā sarakstā.' });
+  return response.json({ pantry: await loadPantry(request.user._id) });
 }));
 
 app.delete('/api/pantry/:foodItemId', requireUser, asyncRoute(async (request, response) => {
@@ -844,10 +975,52 @@ app.get('/api/meal-plans', requireUser, asyncRoute(async (request, response) => 
   return response.json({ plans: plans.map(publicMealPlan) });
 }));
 
+// Saglabātās ēdienkartes ēdienreizes kļūst par receptēm; ja recepte jau ir, palielina tās popularitāti
+async function recordPlanRecipes(plan) {
+  for (const meal of plan?.meals || []) {
+    const name = String(meal.name || '').trim().slice(0, 100);
+    const steps = (meal.steps || []).filter(Boolean);
+    if (!name || !steps.length) continue;
+
+    const existing = await FoodItem.findOne({
+      type: 'recipe',
+      name: { $regex: `^${escapeRegex(name)}$`, $options: 'i' }
+    });
+    if (existing) {
+      await FoodItem.updateOne({ _id: existing._id }, { $inc: { saves: 1 } });
+      continue;
+    }
+
+    await FoodItem.create({
+      type: 'recipe',
+      name,
+      description: (meal.ingredients || []).map((i) => `${i.name} ${i.grams} g`).join(', ').slice(0, 2000),
+      cooking_steps: steps.map((step, index) => `${index + 1}. ${step}`).join('\n'),
+      amount_portions: 1,
+      caloryperportion: Math.round(Number(meal.kcal) || 0),
+      source: 'ai',
+      saves: 1
+    });
+  }
+}
+
+// Vienreiz pārnes receptes no jau iepriekš saglabātajām ēdienkartēm
+async function importSavedPlanRecipes() {
+  if (await FoodItem.exists({ source: 'ai' })) return;
+  const plans = await MealPlan.find({}).lean();
+  for (const doc of plans) await recordPlanRecipes(doc.plan);
+  if (plans.length) console.log(`Receptes importētas no ${plans.length} saglabātām ēdienkartēm`);
+}
+
+mongoose.connection.on('connected', () => {
+  importSavedPlanRecipes().catch((error) => console.error('Recepšu imports neizdevās:', error.message));
+});
+
 app.post('/api/meal-plans', requireUser, asyncRoute(async (request, response) => {
   const plan = sanitizePlan(request.body.plan);
   if (!plan.meals.length) return response.status(400).json({ error: 'Ēdienkarte ir tukša.' });
   const saved = await MealPlan.create({ user: request.user._id, plan });
+  await recordPlanRecipes(plan).catch((error) => console.error('Receptes saglabāšana neizdevās:', error.message));
   return response.status(201).json({ plan: publicMealPlan(saved) });
 }));
 
