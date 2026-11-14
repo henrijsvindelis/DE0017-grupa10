@@ -102,10 +102,17 @@ const foodItemSchema = new mongoose.Schema({
     min: 0,
     required: function () { return this.type === 'recipe'; }
   },
+  // Unikālo lietotāju skaits, kuri recepti saglabājuši savā ēdienkartē (= savedBy.length)
   saves: {
     type: Number,
     default: 0,
     min: 0
+  },
+  // Lietotāji, kuri recepti saglabājuši; privāts lauks, API atbildēs netiek rādīts
+  savedBy: {
+    type: [mongoose.Schema.Types.ObjectId],
+    ref: 'User',
+    select: false
   },
   source: {
     type: String,
@@ -444,6 +451,7 @@ app.post('/api/food-items', requireUser, async (request, response) => {
     const item = await FoodItem.create({ type, ...data, source: 'user', verified: true, createdBy: request.user._id });
     const savedItem = item.toObject({ versionKey: false });
     delete savedItem._id;
+    delete savedItem.savedBy;
     return response.status(201).json({ item: savedItem });
   } catch (error) {
     console.error(`Food item save failed: ${error.message}`);
@@ -472,6 +480,7 @@ app.patch('/api/food-items/:id', requireUser, async (request, response) => {
     await item.save();
     const savedItem = item.toObject({ versionKey: false });
     delete savedItem._id;
+    delete savedItem.savedBy;
     return response.json({ item: savedItem });
   } catch (error) {
     console.error(`Menu item update failed: ${error.message}`);
@@ -975,19 +984,29 @@ app.get('/api/meal-plans', requireUser, asyncRoute(async (request, response) => 
   return response.json({ plans: plans.map(publicMealPlan) });
 }));
 
-// Saglabātās ēdienkartes ēdienreizes kļūst par receptēm; ja recepte jau ir, palielina tās popularitāti
-async function recordPlanRecipes(plan) {
+const recipeNameFilter = (name) => ({
+  type: 'recipe',
+  name: { $regex: `^${escapeRegex(name)}$`, $options: 'i' }
+});
+
+// Pievieno vai noņem lietotāju no receptes savedBy un uzreiz pārrēķina saves (atomiski)
+function updateRecipeSavers(name, userId, add) {
+  const savers = { $ifNull: ['$savedBy', []] };
+  return FoodItem.updateOne(recipeNameFilter(name), [
+    { $set: { savedBy: add ? { $setUnion: [savers, [userId]] } : { $setDifference: [savers, [userId]] } } },
+    { $set: { saves: { $size: '$savedBy' } } }
+  ]);
+}
+
+// Saglabātās ēdienkartes ēdienreizes kļūst par receptēm; popularitāte = unikālo lietotāju skaits
+async function recordPlanRecipes(plan, userId) {
   for (const meal of plan?.meals || []) {
     const name = String(meal.name || '').trim().slice(0, 100);
     const steps = (meal.steps || []).filter(Boolean);
     if (!name || !steps.length) continue;
 
-    const existing = await FoodItem.findOne({
-      type: 'recipe',
-      name: { $regex: `^${escapeRegex(name)}$`, $options: 'i' }
-    });
-    if (existing) {
-      await FoodItem.updateOne({ _id: existing._id }, { $inc: { saves: 1 } });
+    if (await FoodItem.exists(recipeNameFilter(name))) {
+      if (userId) await updateRecipeSavers(name, userId, true);
       continue;
     }
 
@@ -999,17 +1018,34 @@ async function recordPlanRecipes(plan) {
       amount_portions: 1,
       caloryperportion: Math.round(Number(meal.kcal) || 0),
       source: 'ai',
-      saves: 1
+      savedBy: userId ? [userId] : [],
+      saves: userId ? 1 : 0
     });
   }
 }
 
-// Vienreiz pārnes receptes no jau iepriekš saglabātajām ēdienkartēm
+// Pēc ēdienkartes dzēšanas noņem lietotāju no receptēm, kuras viņam nav nevienā citā saglabātā ēdienkartē
+async function forgetPlanRecipes(plan, userId) {
+  const names = new Set((plan?.meals || []).map((meal) => String(meal.name || '').trim().slice(0, 100)).filter(Boolean));
+  for (const name of names) {
+    const stillSaved = await MealPlan.exists({
+      user: userId,
+      'plan.meals.name': { $regex: `^\\s*${escapeRegex(name)}\\s*$`, $options: 'i' }
+    });
+    if (!stillSaved) await updateRecipeSavers(name, userId, false);
+  }
+}
+
+// Vienreiz izveido receptes no jau saglabātajām ēdienkartēm un pārrēķina popularitāti pēc unikāliem lietotājiem
 async function importSavedPlanRecipes() {
-  if (await FoodItem.exists({ source: 'ai' })) return;
-  const plans = await MealPlan.find({}).lean();
-  for (const doc of plans) await recordPlanRecipes(doc.plan);
-  if (plans.length) console.log(`Receptes importētas no ${plans.length} saglabātām ēdienkartēm`);
+  const needsImport = !(await FoodItem.exists({ source: 'ai' }));
+  const needsRecount = await FoodItem.exists({ type: 'recipe', savedBy: { $exists: false } });
+  if (!needsImport && !needsRecount) return;
+
+  await FoodItem.updateMany({ type: 'recipe' }, { $set: { savedBy: [], saves: 0 } });
+  const plans = await MealPlan.find({}).sort({ createdAt: 1 }).lean();
+  for (const doc of plans) await recordPlanRecipes(doc.plan, doc.user);
+  console.log(`Recepšu popularitāte pārrēķināta no ${plans.length} saglabātām ēdienkartēm`);
 }
 
 mongoose.connection.on('connected', () => {
@@ -1020,13 +1056,17 @@ app.post('/api/meal-plans', requireUser, asyncRoute(async (request, response) =>
   const plan = sanitizePlan(request.body.plan);
   if (!plan.meals.length) return response.status(400).json({ error: 'Ēdienkarte ir tukša.' });
   const saved = await MealPlan.create({ user: request.user._id, plan });
-  await recordPlanRecipes(plan).catch((error) => console.error('Receptes saglabāšana neizdevās:', error.message));
+  await recordPlanRecipes(plan, request.user._id).catch((error) => console.error('Receptes saglabāšana neizdevās:', error.message));
   return response.status(201).json({ plan: publicMealPlan(saved) });
 }));
 
 app.delete('/api/meal-plans/:id', requireUser, asyncRoute(async (request, response) => {
   if (!mongoose.Types.ObjectId.isValid(request.params.id)) return response.status(404).json({ error: 'Ēdienkarte nav atrasta.' });
-  await MealPlan.deleteOne({ _id: request.params.id, user: request.user._id });
+  const deleted = await MealPlan.findOneAndDelete({ _id: request.params.id, user: request.user._id }).lean();
+  if (deleted) {
+    await forgetPlanRecipes(deleted.plan, request.user._id)
+      .catch((error) => console.error('Recepšu popularitātes atjaunošana neizdevās:', error.message));
+  }
   return response.json({ ok: true });
 }));
 

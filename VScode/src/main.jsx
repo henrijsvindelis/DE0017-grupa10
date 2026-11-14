@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
 
-const initialItems = { recipes: [], foodItems: [], recipeTotal: 0, foodTotal: 0 };
+const initialItems = { recipes: [], foodItems: [] };
 
 function ArrowIcon({ className = 'size-4' }) {
   return (
@@ -26,13 +26,13 @@ function MenuCard({ item, canDelete, onDelete, deleting, canEdit, onEdit, classN
 
   return (
     <article className={`group relative rounded-2xl border border-forest/10 bg-white p-6 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-lg ${className}`}>
-      <div className="mb-5 flex items-center justify-between">
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
         <span className="rounded-full bg-sage/60 px-3 py-1 text-xs font-bold uppercase tracking-wider text-forest">
           {isRecipe ? 'Recipe' : 'Food item'}
         </span>
-        <div className="flex items-center gap-3">
+        <div className="ml-auto flex items-center gap-3">
           <span className="text-xs font-medium text-ink/45">
-            {isRecipe ? (item.saves ? `Saved ${item.saves}×` : 'From the kitchen') : 'Nutrition'}
+            {isRecipe ? (item.saves ? `Saved by ${item.saves} ${item.saves === 1 ? 'person' : 'people'}` : 'From the kitchen') : 'Nutrition'}
           </span>
           {canEdit && (
             <button
@@ -98,7 +98,7 @@ function MenuCard({ item, canDelete, onDelete, deleting, canEdit, onEdit, classN
   );
 }
 
-function MenuGroup({ title, items, total, loading, type, canDelete, canEdit, onDelete, onEdit, deletingId, carousel = false }) {
+function MenuGroup({ title, items, loading, type, canDelete, canEdit, onDelete, onEdit, deletingId, carousel = false }) {
   const trackRef = useRef(null);
 
   function scrollCards(direction) {
@@ -120,14 +120,14 @@ function MenuGroup({ title, items, total, loading, type, canDelete, canEdit, onD
   ));
 
   return (
-    <section aria-labelledby={`${type}-title`}>
+    <section aria-labelledby={`${type}-title`} className="min-w-0">
       <div className="mb-5 flex items-end justify-between gap-4">
         <div>
           <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-terracotta">Made with care</p>
           <h3 id={`${type}-title`} className="font-display text-3xl text-forest">{title}</h3>
         </div>
         <div className="flex items-center gap-3">
-          <span className="hidden text-sm text-ink/50 sm:block">{total ? `${total} on the menu` : 'Fresh ideas welcome'}</span>
+          <span className="hidden text-sm text-ink/50 sm:block">{items.length ? `${items.length} on the menu` : 'Fresh ideas welcome'}</span>
           {carousel && items.length > 1 && (
             <>
               <button type="button" onClick={() => scrollCards(-1)} aria-label="Previous" className="grid size-10 place-items-center rounded-full border border-forest/15 bg-white text-lg text-forest transition hover:bg-forest hover:text-white">‹</button>
@@ -898,9 +898,7 @@ function App() {
       }
       setItems({
         recipes: recipesResult.items,
-        foodItems: foodItemsResult.items,
-        recipeTotal: recipesResult.total ?? recipesResult.items.length,
-        foodTotal: foodItemsResult.total ?? foodItemsResult.items.length
+        foodItems: foodItemsResult.items
       });
     } catch (error) {
       setMenuError(`${error.message || 'Unable to load menu items.'} Saved items will appear when the database is available.`);
@@ -1048,8 +1046,8 @@ function App() {
               </p>
             )}
             <div className="grid gap-14">
-              <MenuGroup title="Popular recipes" items={items.recipes} total={items.recipeTotal} loading={loading} type="recipe" canDelete={isEditor} canEdit={isEditor} onDelete={deleteMenuItem} onEdit={openEditDialog} deletingId={deletingId} />
-              <MenuGroup title="Food items" items={items.foodItems} total={items.foodTotal} loading={loading} type="food" canDelete={isEditor} canEdit={isEditor} onDelete={deleteMenuItem} onEdit={openEditDialog} deletingId={deletingId} carousel />
+              <MenuGroup title="Popular recipes" items={items.recipes} loading={loading} type="recipe" canDelete={isEditor} canEdit={isEditor} onDelete={deleteMenuItem} onEdit={openEditDialog} deletingId={deletingId} carousel />
+              <MenuGroup title="Food items" items={items.foodItems} loading={loading} type="food" canDelete={isEditor} canEdit={isEditor} onDelete={deleteMenuItem} onEdit={openEditDialog} deletingId={deletingId} carousel />
             </div>
           </div>
         </section>
