@@ -983,7 +983,7 @@ function App() {
             <span className="grid size-10 place-items-center rounded-full bg-forest text-sage"><LeafIcon /></span>
             <span className="flex flex-col text-lg font-bold leading-tight">Quality Food<span className="mt-1 text-[9px] font-bold uppercase tracking-[0.18em] text-ink/50">Thoughtful meal prep</span></span>
           </a>
-          <nav aria-label="Main navigation" className="flex items-center gap-4 sm:gap-8">
+          <nav aria-label="Main navigation" className="flex items-center gap-2 sm:gap-4">
             {pathname === '/' && <>
               <a className="hidden text-sm font-semibold text-ink/70 transition hover:text-terracotta sm:inline" href="#menu">The menu</a>
               <a className="hidden text-sm font-semibold text-ink/70 transition hover:text-terracotta md:inline" href="#approach">Our approach</a>
@@ -991,7 +991,7 @@ function App() {
                 {addButtonLabel} <span aria-hidden="true">+</span>
               </button>
             </>}
-            {user && <a href="/planner" className="text-sm font-semibold text-ink/70 no-underline transition hover:text-terracotta">Meal planner</a>}
+            {user && <a href="/planner" className="rounded-xl bg-yellow-300 px-4 py-3 text-xs font-bold text-forest no-underline transition hover:bg-yellow-200 sm:px-5 sm:text-sm">Meal planner</a>}
             {profileLink}
           </nav>
         </div>
