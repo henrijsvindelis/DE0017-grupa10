@@ -122,7 +122,7 @@ function MenuCard({ item, canDelete, onDelete, deleting, canEdit, onEdit, classN
   );
 }
 
-function MenuGroup({ title, items, loading, type, canDelete, canEdit, onDelete, onEdit, deletingId, carousel = false }) {
+function MenuGroup({ title, items, loading, type, canDelete, canEdit, onDelete, onEdit, deletingId, filtered = false, carousel = false }) {
   const trackRef = useRef(null);
 
   function scrollCards(direction) {
@@ -170,6 +170,11 @@ function MenuGroup({ title, items, loading, type, canDelete, canEdit, onDelete, 
         ) : (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{cards}</div>
         )
+      ) : filtered ? (
+        <div className="rounded-2xl border border-dashed border-forest/20 bg-white/70 px-6 py-10 text-center">
+          <p className="mb-2 font-display text-xl text-forest">No matches</p>
+          <p className="mb-0 text-sm text-ink/55">Nothing matches your search. Try another name or clear the filters.</p>
+        </div>
       ) : (
         <div className="rounded-2xl border border-dashed border-forest/20 bg-white/70 px-6 py-10 text-center">
           <p className="mb-2 font-display text-xl text-forest">A place for something delicious</p>
@@ -194,13 +199,13 @@ function FormField({ label, name, type = 'text', min, step, required = true, ...
   );
 }
 
-function FormSelect({ label, name, options, value, ...props }) {
+function FormSelect({ label, name, options, value, allowEmpty = true, ...props }) {
   const commonClass = 'mt-2 w-full rounded-xl border border-forest/15 bg-cream/60 px-4 py-3 text-sm text-ink outline-none transition focus:border-forest focus:ring-4 focus:ring-forest/10';
   return (
     <label className="block text-sm font-semibold text-forest">
       {label}
-      <select className={commonClass} name={name} defaultValue={value || ''} {...props}>
-        <option value="">Not specified</option>
+      <select className={commonClass} name={name} defaultValue={value || (allowEmpty ? '' : options[0][0])} {...props}>
+        {allowEmpty && <option value="">Not specified</option>}
         {options.map(([optionValue, optionLabel]) => (
           <option key={optionValue} value={optionValue}>{optionLabel}</option>
         ))}
@@ -248,6 +253,16 @@ function ProfileFields({ user }) {
         ]}
       />
       <FormField label="Daily calorie goal (kcal)" name="dailyKcalGoal" type="number" min="500" max="10000" step="1" required={false} defaultValue={user?.dailyKcalGoal ?? ''} />
+      <FormSelect
+        label="Diet"
+        name="diet"
+        value={user?.diet}
+        allowEmpty={false}
+        options={[
+          ['standard', 'Standard'],
+          ['vegetarian', 'Vegetarian']
+        ]}
+      />
     </fieldset>
   );
 }
@@ -672,7 +687,7 @@ function MealPlanCard({ meal }) {
   );
 }
 
-function PantryRow({ entry, onUpdate, onRemove }) {
+function PantryRow({ entry, onUpdate, onRemove, excluded = false }) {
   const startUnit = entry.grams >= 1000 ? 'kg' : 'g';
   const [unit, setUnit] = useState(startUnit);
   const [amount, setAmount] = useState(String(startUnit === 'kg' ? entry.grams / 1000 : entry.grams));
@@ -690,6 +705,9 @@ function PantryRow({ entry, onUpdate, onRemove }) {
       <span className="font-semibold text-forest">
         {entry.name}
         <span className="ml-2 font-normal text-ink/50">{entry.kcal_100g} kcal / 100 g{entry.ownValues ? ' · your values' : ''}</span>
+        {excluded && (
+          <span className="mt-1 block text-xs font-normal text-terracotta-dark">Not vegetarian, so it will not be used in your meal plans.</span>
+        )}
       </span>
       <span className="flex items-center gap-2 text-ink/60">
         <input aria-label={`Amount of ${entry.name}`} className="w-24 rounded-lg border border-forest/15 bg-white px-2 py-1.5 text-right text-sm text-ink" type="number" min="0" step="any" value={amount} onChange={(event) => setAmount(event.target.value)} />
@@ -833,7 +851,8 @@ function MealPlannerPage({ user }) {
         {pantry.length ? (
           <ul className="mb-0 grid gap-2">
             {pantry.map((entry) => (
-              <PantryRow key={`${entry.foodItemId}-${entry.grams}`} entry={entry} onUpdate={updatePantryAmount} onRemove={removeFromPantry} />
+              <PantryRow key={`${entry.foodItemId}-${entry.grams}`} entry={entry} onUpdate={updatePantryAmount} onRemove={removeFromPantry}
+                excluded={user.diet === 'vegetarian' && entry.vegetarian === false} />
             ))}
           </ul>
         ) : <p className="mb-0 text-sm text-ink/60">Add the products you have at home, with the nutrition values from the package.</p>}
@@ -905,14 +924,30 @@ function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [pathname, setPathname] = useState(window.location.pathname);
+  const [search, setSearch] = useState('');
+  const [vegetarianOnly, setVegetarianOnly] = useState(false);
+  const menuFilters = useRef({ q: '', vegetarian: false });
+  const menuRequest = useRef(0);
+  const filtered = search.trim() !== '' || vegetarianOnly;
+
+  function menuUrl(base) {
+    const params = new URLSearchParams(base);
+    const { q, vegetarian } = menuFilters.current;
+    if (q) params.set('q', q);
+    if (vegetarian) params.set('vegetarian', 'true');
+    return `/api/food-items?${params}`;
+  }
 
   async function loadMenuItems() {
     setMenuError('');
+    // Ja filtrs mainās, kamēr iepriekšējais pieprasījums vēl nav beidzies, vecā atbilde tiek ignorēta
+    const requestId = ++menuRequest.current;
     try {
       const [recipesResponse, foodItemsResponse] = await Promise.all([
-        fetch('/api/food-items?type=recipe&sort=popular&limit=6'),
-        fetch('/api/food-items?type=food-item&limit=50')
+        fetch(menuUrl('type=recipe&sort=popular&limit=6')),
+        fetch(menuUrl('type=food-item&limit=50'))
       ]);
+      if (requestId !== menuRequest.current) return;
       const [recipesResult, foodItemsResult] = await Promise.all([
         recipesResponse.json(),
         foodItemsResponse.json()
@@ -925,6 +960,7 @@ function App() {
         foodItems: foodItemsResult.items
       });
     } catch (error) {
+      if (requestId !== menuRequest.current) return;
       setMenuError(`${error.message || 'Unable to load menu items.'} Saved items will appear when the database is available.`);
     } finally {
       setLoading(false);
@@ -967,6 +1003,17 @@ function App() {
   useEffect(() => {
     if (pathname === '/') loadMenuItems();
   }, [pathname]);
+
+  // Meklēšana tiek palaista ar nelielu aizturi, lai nesūtītu pieprasījumu pēc katra burta
+  useEffect(() => {
+    const q = search.trim();
+    if (q === menuFilters.current.q && vegetarianOnly === menuFilters.current.vegetarian) return undefined;
+    const timer = setTimeout(() => {
+      menuFilters.current = { q, vegetarian: vegetarianOnly };
+      if (pathname === '/') loadMenuItems();
+    }, q === menuFilters.current.q ? 0 : 300);
+    return () => clearTimeout(timer);
+  }, [search, vegetarianOnly]);
 
   const isEditor = user?.role === 'Admin' || user?.role === 'Nutritionist';
   const addButtonLabel = !user || user.role === 'User' ? 'Add product' : user.role === 'Admin' ? 'Add food item' : 'Add to menu';
@@ -1069,9 +1116,31 @@ function App() {
                 {menuError}
               </p>
             )}
+            <div className="mb-12 flex flex-wrap items-center gap-4">
+              <label className="min-w-0 flex-1 basis-64">
+                <span className="sr-only">Search recipes and food items</span>
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  maxLength={50}
+                  placeholder="Search recipes and food items…"
+                  className="w-full rounded-xl border border-forest/15 bg-white px-4 py-3 text-sm text-ink outline-none transition placeholder:text-ink/40 focus:border-forest focus:ring-4 focus:ring-forest/10"
+                />
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-forest">
+                <input
+                  type="checkbox"
+                  checked={vegetarianOnly}
+                  onChange={(event) => setVegetarianOnly(event.target.checked)}
+                  className="size-4 accent-forest"
+                />
+                Vegetarian only
+              </label>
+            </div>
             <div className="grid gap-14">
-              <MenuGroup title="Popular recipes" items={items.recipes} loading={loading} type="recipe" canDelete={isEditor} canEdit={isEditor} onDelete={deleteMenuItem} onEdit={openEditDialog} deletingId={deletingId} carousel />
-              <MenuGroup title="Food items" items={items.foodItems} loading={loading} type="food" canDelete={isEditor} canEdit={isEditor} onDelete={deleteMenuItem} onEdit={openEditDialog} deletingId={deletingId} carousel />
+              <MenuGroup title="Popular recipes" items={items.recipes} loading={loading} type="recipe" canDelete={isEditor} canEdit={isEditor} onDelete={deleteMenuItem} onEdit={openEditDialog} deletingId={deletingId} filtered={filtered} carousel />
+              <MenuGroup title="Food items" items={items.foodItems} loading={loading} type="food" canDelete={isEditor} canEdit={isEditor} onDelete={deleteMenuItem} onEdit={openEditDialog} deletingId={deletingId} filtered={filtered} carousel />
             </div>
           </div>
         </section>

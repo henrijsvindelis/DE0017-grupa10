@@ -26,6 +26,7 @@ const userSchema = new mongoose.Schema({
   activityLevel: { type: String, enum: ['sedentary', 'lightly-active', 'moderately-active', 'very-active', 'extra-active'] },
   goal: { type: String, enum: ['lose', 'gain', 'maintain'] },
   dailyKcalGoal: { type: Number, min: 500, max: 10000, validate: (value) => value == null || Number.isInteger(value) },
+  diet: { type: String, enum: ['standard', 'vegetarian'], default: 'standard' },
   passwordSalt: { type: String, required: true, select: false },
   passwordHash: { type: String, required: true, select: false },
   role: { type: String, enum: ['Admin', 'Nutritionist', 'User'], default: 'User', required: true }
@@ -115,6 +116,11 @@ const foodItemSchema = new mongoose.Schema({
     ref: 'User',
     select: false
   },
+  // Receptes sastāvdaļu produktu id (no saglabātās ēdienkartes); vajadzīgs veģetāro recepšu filtram
+  ingredientIds: {
+    type: [String],
+    default: undefined
+  },
   source: {
     type: String,
     enum: ['user', 'ai'],
@@ -182,7 +188,8 @@ function publicUser(user) {
     weight: user.weight,
     activityLevel: user.activityLevel,
     goal: user.goal,
-    dailyKcalGoal: user.dailyKcalGoal
+    dailyKcalGoal: user.dailyKcalGoal,
+    diet: user.diet || 'standard'
   };
 }
 
@@ -195,7 +202,8 @@ const numericProfileFields = {
 const enumProfileFields = {
   sex: ['female', 'male'],
   activityLevel: ['sedentary', 'lightly-active', 'moderately-active', 'very-active', 'extra-active'],
-  goal: ['lose', 'gain', 'maintain']
+  goal: ['lose', 'gain', 'maintain'],
+  diet: ['standard', 'vegetarian']
 };
 
 function parseProfileFields(input) {
@@ -227,6 +235,8 @@ function parseProfileFields(input) {
     }
     values[field] = value;
   }
+  // Diētai nav "nav norādīts" vērtības: tukša nozīmē standarta
+  if (values.diet === null) values.diet = 'standard';
   return { error: null, values };
 }
 
@@ -255,7 +265,7 @@ async function requireUser(request, response, next) {
   try {
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
     const session = await Session.findOne({ tokenHash, expiresAt: { $gt: new Date() } })
-      .populate('user', 'email username role age sex height weight activityLevel goal dailyKcalGoal');
+      .populate('user', 'email username role age sex height weight activityLevel goal dailyKcalGoal diet');
     if (!session?.user) return response.status(401).json({ error: 'Your session has expired. Please log in again.' });
     request.user = session.user;
     request.session = session;
@@ -375,10 +385,34 @@ app.get('/api/food-items', async (request, response) => {
   try {
     const limit = Math.min(Math.max(Number.parseInt(request.query.limit, 10) || 3, 1), 50);
     const sort = request.query.sort === 'popular' ? { saves: -1, createdAt: -1 } : { createdAt: -1 };
-    const [items, total] = await Promise.all([
-      FoodItem.find({ type }).sort(sort).limit(limit).lean(),
-      FoodItem.countDocuments({ type })
-    ]);
+    const filter = { type };
+    const query = String(request.query.q || '').trim().slice(0, 50);
+    if (query) filter.name = { $regex: escapeRegex(query), $options: 'i' };
+    const vegetarianOnly = request.query.vegetarian === 'true';
+
+    let items;
+    let total;
+    if (vegetarianOnly && type === 'recipe') {
+      // Recepte ir veģetāra, ja tai ir zināmas sastāvdaļas un visas ir produkti ar vegetarian: true
+      const [result] = await FoodItem.aggregate([
+        { $match: { ...filter, 'ingredientIds.0': { $exists: true } } },
+        { $lookup: { from: FoodItem.collection.name, localField: 'ingredientIds', foreignField: 'id', as: 'ingredientProducts' } },
+        { $match: { $expr: { $and: [
+          { $eq: [{ $size: '$ingredientProducts' }, { $size: '$ingredientIds' }] },
+          { $allElementsTrue: [{ $map: { input: '$ingredientProducts', in: { $eq: ['$$this.vegetarian', true] } } }] }
+        ] } } },
+        { $facet: { items: [{ $sort: sort }, { $limit: limit }], total: [{ $count: 'count' }] } }
+      ]);
+      items = result.items;
+      total = result.total[0]?.count || 0;
+    } else {
+      // Produkti bez vegetarian lauka ir nezināmi, tāpēc filtrā netiek rādīti
+      if (vegetarianOnly) filter.vegetarian = true;
+      [items, total] = await Promise.all([
+        FoodItem.find(filter).sort(sort).limit(limit).lean(),
+        FoodItem.countDocuments(filter)
+      ]);
+    }
     const results = items.map((item) => {
       const savedItem = {
         id: item.id,
@@ -619,7 +653,10 @@ async function loadPantry(userId) {
         protein_100g: entry.protein_100g ?? item.protein_100g,
         fat_100g: entry.fat_100g ?? item.fat_100g,
         carbohydrates_100g: entry.carbohydrates_100g ?? item.carbohydrates_100g,
-        ownValues: entry.kcal_100g !== undefined && entry.kcal_100g !== null
+        ownValues: entry.kcal_100g !== undefined && entry.kcal_100g !== null,
+        // true / false no produktu datubāzes; lietotāju pievienotajiem produktiem var nebūt zināms
+        ...(typeof item.vegetarian === 'boolean' ? { vegetarian: item.vegetarian } : {}),
+        ...(item.category ? { category: item.category } : {})
       };
     });
 }
@@ -708,17 +745,19 @@ app.delete('/api/pantry/:foodItemId', requireUser, asyncRoute(async (request, re
 const mealTypes = ['breakfast', 'lunch', 'dinner', 'snack'];
 const lastGenerationByUser = new Map();
 
-function buildMealPlanPrompt(target, pantry) {
+function buildMealPlanPrompt(target, pantry, vegetarian = false) {
   const products = pantry.map((p) => ({
-    id: p.foodItemId, name: p.name, availableGrams: p.grams,
+    id: p.foodItemId, name: p.name,
+    ...(p.category ? { category: p.category } : {}),
+    availableGrams: p.grams,
     kcal_100g: p.kcal_100g, protein_100g: p.protein_100g
   }));
   return `Tu esi uztura plānotājs. Izveido vienas dienas ēdienkarti latviešu valodā.
-Lietotāja mērķis: ${target.goal} (lose = zaudēt svaru, maintain = noturēt, gain = pieņemties).
+Lietotāja mērķis: ${target.goal} (lose = zaudēt svaru, maintain = noturēt, gain = pieņemties).${vegetarian ? '\nLietotājs ir veģetārietis: neizmanto un nemini gaļu, zivis un citus dzīvnieku gaļas produktus.' : ''}
 Dienas kaloriju mērķis: ${target.dailyKcal} kcal, olbaltumvielas: ~${target.proteinGrams} g.
 Ēdienreižu mērķi (kcal): ${JSON.stringify(target.meals)}.
 
-Pieejamie produkti (izmanto TIKAI tos, pēc "id", un kopā ne vairāk par availableGrams katram):
+Pieejamie produkti (izmanto TIKAI tos, pēc "id", un kopā ne vairāk par availableGrams katram; "category", ja norādīta, palīdz izvēlēties, kurai ēdienreizei produkts der):
 ${JSON.stringify(products)}
 
 Noteikumi:
@@ -841,7 +880,7 @@ function normalizeMealType(type) {
   return mealTypeAliases[normalizeText(type)] || '';
 }
 
-function validateMealPlan(raw, pantry, target) {
+function validateMealPlan(raw, pantry, target, { vegetarian = false } = {}) {
   const byId = new Map(pantry.map((p) => [p.foodItemId, p]));
   const byName = new Map(pantry.map((p) => [normalizeText(p.name), p]));
   const used = new Map();
@@ -859,6 +898,9 @@ function validateMealPlan(raw, pantry, target) {
       const product = byId.get(String(item?.id)) || byName.get(normalizeText(item?.name));
       const grams = Math.round(Number(item?.grams));
       if (!product) return { ok: false, error: 'MI izmantoja produktu, kura nav sarakstā.' };
+      if (vegetarian && product.vegetarian === false) {
+        return { ok: false, error: `MI izmantoja produktu "${product.name}", kas nav veģetārs.` };
+      }
       if (!Number.isFinite(grams) || grams <= 0) continue;
       used.set(product.foodItemId, (used.get(product.foodItemId) || 0) + grams);
       ingredients.push({
@@ -932,10 +974,17 @@ app.post('/api/meal-plan/generate', requireUser, asyncRoute(async (request, resp
     return response.status(400).json({ error: 'Vispirms pievieno produktus sarakstam "Mani produkti".' });
   }
 
-  const availableKcal = pantry.reduce((sum, p) => sum + p.kcal_100g * p.grams / 100, 0);
+  // Veģetārai diētai MI nesaņem produktus, kas noteikti nav veģetāri (vegetarian: false)
+  const vegetarian = request.user.diet === 'vegetarian';
+  const usablePantry = vegetarian ? pantry.filter((p) => p.vegetarian !== false) : pantry;
+  if (!usablePantry.length) {
+    return response.status(400).json({ error: 'Sarakstā nav neviena veģetāra produkta. Pievieno produktus vai maini diētu profilā.' });
+  }
+
+  const availableKcal = usablePantry.reduce((sum, p) => sum + p.kcal_100g * p.grams / 100, 0);
   const enoughForFullDay = availableKcal >= target.dailyKcal * 0.9;
 
-  const prompt = buildMealPlanPrompt(target, pantry);
+  const prompt = buildMealPlanPrompt(target, usablePantry, vegetarian);
   let lastError = 'Neizdevās izveidot ēdienkarti.';
   let bestPlan = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -944,7 +993,7 @@ app.post('/api/meal-plan/generate', requireUser, asyncRoute(async (request, resp
         : `${prompt}\n\nTava iepriekšējā atbilde bija nederīga: ${lastError} Izlabo to.`;
       const raw = await askGemini(attemptPrompt);
       console.log(`MI atbilde (${attempt}. mēģinājums): ${(raw?.meals || []).length} ēdienreizes`, (raw?.meals || []).map((m) => m?.type));
-      const checked = validateMealPlan(raw, pantry, target);
+      const checked = validateMealPlan(raw, pantry, target, { vegetarian });
       if (!checked.ok) {
         lastError = checked.error;
         continue;
@@ -1024,21 +1073,53 @@ function updateRecipeSavers(name, userId, add) {
   ]);
 }
 
+// Ēdienreizes sastāvdaļu produktu id bez atkārtojumiem
+function mealIngredientIds(meal) {
+  return [...new Set((meal?.ingredients || []).map((i) => String(i?.foodItemId || '')).filter(Boolean))];
+}
+
+// Vienreiz aizpilda ingredientIds receptēm, kas izveidotas pirms šī lauka, no saglabātajām ēdienkartēm
+async function backfillRecipeIngredients() {
+  const recipes = await FoodItem.find({ type: 'recipe', source: 'ai', ingredientIds: { $exists: false } }, { id: 1, name: 1 }).lean();
+  if (!recipes.length) return;
+  const idsByName = new Map();
+  for (const doc of await MealPlan.find({}, { plan: 1 }).lean()) {
+    for (const meal of doc.plan?.meals || []) {
+      const key = String(meal.name || '').trim().toLowerCase();
+      const ids = mealIngredientIds(meal);
+      if (key && ids.length && !idsByName.has(key)) idsByName.set(key, ids);
+    }
+  }
+  let updated = 0;
+  for (const recipe of recipes) {
+    const ids = idsByName.get(recipe.name.trim().toLowerCase());
+    if (!ids) continue;
+    await FoodItem.updateOne({ id: recipe.id }, { $set: { ingredientIds: ids } });
+    updated += 1;
+  }
+  if (updated) console.log(`Receptēm aizpildītas sastāvdaļas: ${updated}`);
+}
+
 // Saglabātās ēdienkartes ēdienreizes kļūst par receptēm; popularitāte = unikālo lietotāju skaits
 async function recordPlanRecipes(plan, userId) {
   for (const meal of plan?.meals || []) {
     const name = String(meal.name || '').trim().slice(0, 100);
     const steps = (meal.steps || []).filter(Boolean);
     if (!name || !steps.length) continue;
+    const ingredientIds = mealIngredientIds(meal);
 
     if (await FoodItem.exists(recipeNameFilter(name))) {
       if (userId) await updateRecipeSavers(name, userId, true);
+      if (ingredientIds.length) {
+        await FoodItem.updateOne({ ...recipeNameFilter(name), ingredientIds: { $exists: false } }, { $set: { ingredientIds } });
+      }
       continue;
     }
 
     await FoodItem.create({
       type: 'recipe',
       name,
+      ...(ingredientIds.length ? { ingredientIds } : {}),
       description: (meal.ingredients || []).map((i) => `${i.name} ${i.grams} g`).join(', ').slice(0, 2000),
       cooking_steps: steps.map((step, index) => `${index + 1}. ${step}`).join('\n'),
       amount_portions: 1,
@@ -1258,7 +1339,9 @@ mongoose.connection.on('connected', async () => {
   } catch (error) {
     console.error('Datubāzes sākotnējā aizpilde neizdevās:', error.message);
   }
-  importSavedPlanRecipes().catch((error) => console.error('Recepšu imports neizdevās:', error.message));
+  importSavedPlanRecipes()
+    .then(backfillRecipeIngredients)
+    .catch((error) => console.error('Recepšu imports neizdevās:', error.message));
 });
 
 app.post('/api/meal-plans', requireUser, asyncRoute(async (request, response) => {

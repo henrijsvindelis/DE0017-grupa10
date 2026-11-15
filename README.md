@@ -111,7 +111,7 @@ The values are guidance only and not medical advice.
 
 | Method and path | Description |
 | --- | --- |
-| `GET /api/food-items?type=recipe\|food-item` | Newest (or `sort=popular`) recipes or food items |
+| `GET /api/food-items?type=recipe\|food-item` | Newest (or `sort=popular`) recipes or food items. Optional `q` searches by name; `vegetarian=true` shows only vegetarian food items and recipes whose ingredients are all vegetarian |
 | `POST /api/food-items` | Add a food item (Admin, Nutritionist) or a recipe (Nutritionist) |
 | `PATCH /api/food-items/:id` | Correct an item; an edited food item becomes verified (Admin, Nutritionist) |
 | `DELETE /api/food-items/:id` | Delete an item (Admin, Nutritionist) |
