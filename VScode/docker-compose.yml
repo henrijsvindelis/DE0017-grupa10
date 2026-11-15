@@ -20,8 +20,11 @@ services:
     develop:
       watch:
         - action: sync+restart
-          path: ./server.js
-          target: /app/server.js
+          path: ./server
+          target: /app/server
+        - action: sync+restart
+          path: ./seed
+          target: /app/seed
         - action: rebuild
           path: ./src
         - action: rebuild

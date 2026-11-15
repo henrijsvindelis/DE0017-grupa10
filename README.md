@@ -88,7 +88,7 @@ To have changes applied automatically while editing code:
 docker compose up --build --watch --no-attach mongo
 ```
 
-Changes to `server.js` restart the server within seconds; changes in `src/` rebuild the app automatically.
+Changes in `server/` or `seed/` restart the server within seconds; changes in `src/` rebuild the app automatically.
 
 ## Run without Docker
 
@@ -96,6 +96,42 @@ Changes to `server.js` restart the server within seconds; changes in `src/` rebu
 2. In the `VScode` folder, run `npm install` (`npm.cmd install` on Windows).
 3. Copy `.env.example` to `.env` and set `MONGODB_URI` and the AI keys.
 4. Run `npm run dev` and open <http://localhost:5173>.
+
+## Project structure
+
+All app code is in the `VScode` folder.
+
+```
+VScode/
+├── server/                 Express API (started with node server/index.js)
+│   ├── index.js            Connects middleware and routes, starts the server, runs startup tasks
+│   ├── config.js           Paths to dist/ and seed/products.json
+│   ├── db.js               MongoDB connection with retries
+│   ├── utils.js            Small shared helpers
+│   ├── models/             Mongoose models: User, Session, FoodItem, Pantry, MealPlan
+│   ├── middleware/         requireUser (session check), asyncRoute
+│   ├── routes/             auth, profile, health, foodItems, products, pantry, nutrition,
+│   │                       mealPlan (AI generation), mealPlans (saved plans)
+│   └── services/
+│       ├── ai.js           Meal plan prompt and Gemini / Groq calls
+│       ├── mealPlanValidation.js  Checks AI answers against the user's products
+│       ├── nutrition.js    Daily target, nutrition checks, meal plan analysis
+│       ├── pantry.js       Loads a user's product list
+│       ├── recipes.js      Recipes created from saved meal plans and their popularity
+│       ├── seed.js         Products, demo accounts and demo meal plans on first start
+│       ├── auth.js         Passwords, sessions and the public user object
+│       └── profile.js      Profile field validation
+├── src/                    React app (built with Vite)
+│   ├── main.jsx            App: user, routes and add/edit dialogs
+│   ├── pages/              HomePage, MealPlannerPage, ProfilePage, AuthPage
+│   ├── components/         Header, footer, menu cards, dialogs, pantry rows, meal plan cards, analysis
+│   ├── lib/                requestJson and shared labels
+│   ├── fonts/              Self-hosted Fraunces font (OFL license)
+│   └── style.css           Tailwind theme and base styles
+├── seed/products.json      Products and daily norms loaded on first start
+├── Dockerfile
+└── docker-compose.yml
+```
 
 ## How the daily target is calculated
 

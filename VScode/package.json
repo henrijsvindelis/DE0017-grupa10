@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "description": "React, Tailwind, Express, and MongoDB meal planning website",
-  "main": "server.js",
+  "main": "server/index.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "concurrently -k -n API,WEB \"nodemon server.js\" \"vite\"",
+    "start": "node server/index.js",
+    "dev": "concurrently -k -n API,WEB \"nodemon --watch server --watch seed server/index.js\" \"vite\"",
     "build": "vite build"
   },
   "dependencies": {
