@@ -23,9 +23,10 @@ function LeafIcon() {
 
 function MenuCard({ item, canDelete, onDelete, deleting, canEdit, onEdit, className = '' }) {
   const isRecipe = item.type === 'recipe';
+  const [showSteps, setShowSteps] = useState(false);
 
   return (
-    <article className={`group relative rounded-2xl border border-forest/10 bg-white p-6 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-lg ${className}`}>
+    <article className={`group relative flex flex-col overflow-hidden rounded-2xl border border-forest/10 bg-white p-6 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-lg ${className}`}>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
         <span className="rounded-full bg-sage/60 px-3 py-1 text-xs font-bold uppercase tracking-wider text-forest">
           {isRecipe ? 'Recipe' : 'Food item'}
@@ -69,10 +70,33 @@ function MenuCard({ item, canDelete, onDelete, deleting, canEdit, onEdit, classN
             <span className="rounded-lg bg-cream px-3 py-2 text-xs font-semibold text-ink/70">{item.amount_portions} portions</span>
             <span className="rounded-lg bg-cream px-3 py-2 text-xs font-semibold text-ink/70">{item.caloryperportion} kcal / portion</span>
           </div>
-          <details className="border-t border-forest/10 pt-4 text-sm">
-            <summary className="cursor-pointer font-semibold text-forest marker:text-terracotta">See cooking steps</summary>
-            <p className="mb-0 mt-3 whitespace-pre-line leading-6 text-ink/65">{item.cooking_steps}</p>
-          </details>
+          <div className="mt-auto border-t border-forest/10 pt-4 text-sm">
+            <button
+              type="button"
+              onClick={() => setShowSteps(true)}
+              aria-expanded={showSteps}
+              className="font-semibold text-forest transition hover:text-terracotta"
+            >
+              <span className="text-terracotta">▸</span> See cooking steps
+            </button>
+          </div>
+          {showSteps && (
+            // Soļi atveras virs kartītes, lai kartītes izmērs nemainās un visas paliek vienā augstumā
+            <div className="absolute inset-0 z-10 flex flex-col bg-white p-6">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <h4 className="mb-0 font-display text-xl leading-tight text-forest">{item.name}</h4>
+                <button
+                  type="button"
+                  onClick={() => setShowSteps(false)}
+                  aria-label="Close cooking steps"
+                  className="grid size-7 shrink-0 place-items-center rounded-full bg-cream text-lg leading-none text-forest transition hover:bg-forest hover:text-white"
+                >
+                  ×
+                </button>
+              </div>
+              <p className="mb-0 min-h-0 flex-1 overflow-y-auto whitespace-pre-line pr-1 text-sm leading-6 text-ink/65">{item.cooking_steps}</p>
+            </div>
+          )}
         </>
       ) : (
         <>

@@ -4,21 +4,21 @@ Konceptuālais modelis ir balstīts uz prasību formulējumu (reģistrācija, di
 
 ## 1. Diagramma
 
-- Lietotajs: Reprezentē jebkuru reģistrētu sistēmas lietotāju. Glabā piekļuves un identifikācijas datus un lietotāja lomu sistēmā.
+- Lietotājs: Reprezentē jebkuru reģistrētu sistēmas lietotāju. Glabā piekļuves un identifikācijas datus un lietotāja lomu sistēmā.
 - Profils: Glabā lietotāja fizikālos un personīgos datus uztura plānošanai. Katram Lietotājam ir tieši viens Profils.
-- DietasPlans: Konkrēts uztura plāns noteiktam laika periodam. Lietotājs var izveidot vairākus plānus, kā arī plāns var tikt balstīts uz citu jau esošu veidnes plānu.
-- Edienreize: Definē ēdienreizes veidu, dienu un porciju daudzumu. Apvieno Diētas plānu ar konkrētu Recepti.
+- Diētas plāns: Konkrēts uztura plāns noteiktam laika periodam. Lietotājs var izveidot vairākus plānus, kā arī plāns var tikt balstīts uz citu jau esošu veidnes plānu.
+- Ēdienreize: Definē ēdienreizes veidu, dienu un porciju daudzumu. Apvieno Diētas plānu ar konkrētu Recepti.
 - Recepte: Pagatavojama ēdiena apraksts. Glabā nosaukumu, aprakstu, pagatavošanas soļus, porciju skaitu un aprēķināto kaloriju daudzumu vienā porcijā.
-- ReceptesSastavdala: Saisttabula starp recepti un produktu. Norāda, cik gramu konkrētā produkta ir nepieciešams konkrētajā receptē.
+- Receptes sastāvdaļa: Saisttabula starp recepti un produktu. Norāda, cik gramu konkrētā produkta ir nepieciešams konkrētajā receptē.
 - Produkts: Pamata pārtikas produkts. Glabā produkta uzturvērtību uz 100 gramiem (kalorijas, olbaltumvielas, taukus, ogļhidrātus).
 - Birka: Klasifikators/iepriekš definēti birku saraksti. Tiek izmantota, lai atzīmētu Receptes vai norādītu klienta vēlamo diētas veidu Profilā.
-- AnalizesSesija: Konsultācija starp klientu un uztura speciālistu. Sasaista divus Lietotājus (klients un nutriciologs).
+- Analīzes sesija: Konsultācija starp klientu un uztura speciālistu. Sasaista divus Lietotājus (klients un nutriciologs).
 
 ```mermaid
 classDiagram
     direction LR
 
-    class Lietotajs {
+    class Lietotajs["Lietotājs"] {
         string id
         string vārds
         string e_pasts
@@ -37,7 +37,7 @@ classDiagram
         number dienas_kaloriju_mērķis
     }
 
-    class DietasPlans {
+    class DietasPlans["Diētas plāns"] {
         string id
         string nosaukums
         string veids
@@ -46,7 +46,7 @@ classDiagram
         number kaloriju_mērķis
     }
 
-    class Edienreize {
+    class Edienreize["Ēdienreize"] {
         Date diena
         string tips "brokastis | pusdienas | vakariņas | uzkoda"
         number porcijas
@@ -61,7 +61,7 @@ classDiagram
         number kalorijas_porcijā
     }
 
-    class ReceptesSastavdala {
+    class ReceptesSastavdala["Receptes sastāvdaļa"] {
         number daudzums_g
     }
 
@@ -78,7 +78,7 @@ classDiagram
         string nosaukums
     }
 
-    class AnalizesSesija {
+    class AnalizesSesija["Analīzes sesija"] {
         Date datums_laiks
         string statuss "pieteikta | notikusi | atcelta"
         string piezīmes

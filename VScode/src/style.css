@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+/* Fraunces tiek glabāts projektā: Google Fonts versijā garumzīmes virs ā, ē, ī, ū ir nobīdītas. Licence: fonts/OFL.txt */
+@font-face {
+  font-family: "Fraunces";
+  src: url("./fonts/Fraunces-Variable.ttf") format("truetype");
+  /* Tāpat kā iepriekš ar Google Fonts: pieejami tikai biezumi 500–600, tāpēc 400 attēlo kā 500 */
+  font-weight: 500 600;
+  font-style: normal;
+  font-display: swap;
+}
+
 @theme {
   --color-cream: #f7f7f1;
   --color-sage: #dce8d7;
