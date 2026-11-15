@@ -9,6 +9,11 @@ const nutritionLabels = [
 
 const emptyNutrition = { kcal_100g: '', protein_100g: '', fat_100g: '', carbohydrates_100g: '' };
 
+// Tāpat kā serverī: "kartupeli" sakrīt ar "Kartupeļi"
+function foldName(name) {
+  return name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
 export function AddProductDialog({ open, onClose, onSaved }) {
   const [products, setProducts] = useState([]);
   const [name, setName] = useState('');
@@ -18,10 +23,34 @@ export function AddProductDialog({ open, onClose, onSaved }) {
   const [prefilled, setPrefilled] = useState(false);
   const [status, setStatus] = useState({ message: '', error: false });
   const [saving, setSaving] = useState(false);
+  const [suggestion, setSuggestion] = useState(null);
+
+  // Ieteikumi no visas datubāzes pēc ievadītā teksta (serveris atgriež līdz 50 atbilstībām)
+  useEffect(() => {
+    if (!open) return undefined;
+    const timer = setTimeout(() => {
+      fetch(`/api/products?q=${encodeURIComponent(name.trim())}`)
+        .then((response) => response.json())
+        .then((result) => setProducts(result.products || []))
+        .catch(() => {});
+    }, name.trim() ? 200 : 0);
+    return () => clearTimeout(timer);
+  }, [open, name]);
+
+  // Zināmam produktam aizpilda uzturvērtību no pārbaudītās datubāzes
+  const match = products.find((product) => foldName(product.name) === foldName(name)) || null;
+  useEffect(() => {
+    if (match?.verified) {
+      setNutrition(Object.fromEntries(nutritionLabels.map(([field]) => [field, String(match[field])])));
+      setPrefilled(true);
+    } else if (prefilled) {
+      setNutrition(emptyNutrition);
+      setPrefilled(false);
+    }
+  }, [match?.id]);
 
   useEffect(() => {
     if (!open) return undefined;
-    fetch('/api/products').then((response) => response.json()).then((result) => setProducts(result.products || [])).catch(() => {});
     function handleKeyDown(event) {
       if (event.key === 'Escape' && !saving) onClose();
     }
@@ -33,19 +62,14 @@ export function AddProductDialog({ open, onClose, onSaved }) {
 
   function handleNameChange(value) {
     setName(value);
-    const match = products.find((product) => product.verified && product.name.toLowerCase() === value.trim().toLowerCase());
-    if (match) {
-      setNutrition(Object.fromEntries(nutritionLabels.map(([field]) => [field, String(match[field])])));
-      setPrefilled(true);
-    } else if (prefilled) {
-      setNutrition(emptyNutrition);
-      setPrefilled(false);
-    }
+    setSuggestion(null);
+    setStatus({ message: '', error: false });
   }
 
-  async function handleSubmit(event) {
-    event.preventDefault();
+  async function handleSubmit(event, { confirmNew = false } = {}) {
+    event?.preventDefault();
     setSaving(true);
+    setSuggestion(null);
     setStatus({ message: 'Saving…', error: false });
     const grams = unit === 'kg' ? Number(amount) * 1000 : Number(amount);
     try {
@@ -55,10 +79,17 @@ export function AddProductDialog({ open, onClose, onSaved }) {
         body: JSON.stringify({
           name: name.trim(),
           grams,
-          nutrition: Object.fromEntries(nutritionLabels.map(([field]) => [field, Number(nutrition[field])]))
+          nutrition: Object.fromEntries(nutritionLabels.map(([field]) => [field, Number(nutrition[field])])),
+          ...(confirmNew ? { confirmNew: true } : {})
         })
       });
       const result = await response.json();
+      // Nosaukums ļoti līdzīgs esošam produktam: jautā, vai lietotājs domāja to
+      if (response.status === 409 && result.suggestion) {
+        setSuggestion(result.suggestion);
+        setStatus({ message: '', error: false });
+        return;
+      }
       if (!response.ok) throw new Error(result.error || 'Unable to add this product.');
       setStatus({ message: 'Added to your products.', error: false });
       await onSaved?.(result.pantry);
@@ -119,6 +150,20 @@ export function AddProductDialog({ open, onClose, onSaved }) {
             ))}
           </fieldset>
           {prefilled && <p className="-mt-2 mb-0 text-xs text-ink/55">Filled in from our checked database. Change the values if your package says otherwise.</p>}
+          {!match && name.trim().length >= 2 && !suggestion && (
+            <p className="-mt-2 mb-0 text-xs text-ink/55">This product is not in our database yet. It will be added as a new, unverified product until an admin checks it.</p>
+          )}
+          {suggestion && (
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-terracotta/20 bg-terracotta/5 px-4 py-3 text-sm text-terracotta-dark" role="alert">
+              <span className="mr-auto">Did you mean <strong>{suggestion.name}</strong>?</span>
+              <button type="button" onClick={() => handleNameChange(suggestion.name)} className="rounded-lg bg-forest px-3 py-1.5 text-xs font-bold text-white hover:bg-forest-light">
+                Use {suggestion.name}
+              </button>
+              <button type="button" onClick={() => handleSubmit(null, { confirmNew: true })} disabled={saving} className="rounded-lg border border-terracotta/30 px-3 py-1.5 text-xs font-bold text-terracotta-dark hover:bg-white disabled:opacity-60">
+                No, add as new
+              </button>
+            </div>
+          )}
 
           <p className={`min-h-5 text-sm ${status.error ? 'text-red-700' : 'text-forest/70'}`} role="status" aria-live="polite">{status.message}</p>
           <div className="flex justify-end gap-3">

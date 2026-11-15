@@ -2,6 +2,7 @@ const express = require('express');
 
 const { escapeRegex } = require('../utils');
 const { loadPantry } = require('../services/pantry');
+const { cleanProductName, findSameProduct, findSimilarProduct, productNameError } = require('../services/productNames');
 const { nutritionFields, parseNutrition } = require('../services/nutrition');
 const Pantry = require('../models/Pantry');
 const FoodItem = require('../models/FoodItem');
@@ -27,13 +28,32 @@ router.post('/api/pantry', requireUser, asyncRoute(async (request, response) => 
     nutrition = parsed.values;
   }
 
-  const name = String(request.body.name || '').trim().slice(0, 100);
+  const name = cleanProductName(request.body.name);
   let product = null;
   if (request.body.foodItemId) {
     product = await FoodItem.findOne({ id: String(request.body.foodItemId), type: 'food-item' }).lean();
   }
   if (!product && name) {
     product = await FoodItem.findOne({ type: 'food-item', name: { $regex: `^${escapeRegex(name)}$`, $options: 'i' } }).lean();
+  }
+  if (!product && name) {
+    // "kartupeli" = "Kartupeļi": atšķiras tikai garumzīmes, lielie burti vai atstarpes
+    const existing = await FoodItem.find({ type: 'food-item' }, { id: 1, name: 1 }).lean();
+    const same = findSameProduct(name, existing);
+    if (same) {
+      product = await FoodItem.findOne({ id: same.id }).lean();
+    } else {
+      const nameError = productNameError(name);
+      if (nameError) return response.status(400).json({ error: nameError });
+      // Iespējama drukas kļūda: piedāvā esošo produktu, ja lietotājs nav apstiprinājis, ka tas ir jauns
+      const similar = request.body.confirmNew === true ? null : findSimilarProduct(name, existing);
+      if (similar) {
+        return response.status(409).json({
+          error: `Vai domāji "${similar.name}"?`,
+          suggestion: { id: similar.id, name: similar.name }
+        });
+      }
+    }
   }
   if (!product) {
     if (!name) return response.status(400).json({ error: 'Ievadi produkta nosaukumu.' });
