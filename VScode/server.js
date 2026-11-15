@@ -794,7 +794,10 @@ const aiProviders = [
     name: 'Groq',
     key: () => process.env.GROQ_API_KEY,
     url: 'https://api.groq.com/openai/v1/chat/completions',
-    model: () => process.env.GROQ_MODEL || 'openai/gpt-oss-120b'
+    model: () => process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
+    // gpt-oss ar noklusējuma spriešanu iztērē visus atbildes tokenus domāšanai un atgriež nogrieztu
+    // vai tukšu atbildi (json_validate_failed); ar "low" atbilde ir pilna un ātra
+    options: (model) => (model.includes('gpt-oss') ? { reasoning_effort: 'low', max_completion_tokens: 6000 } : {})
   }
 ];
 
@@ -802,14 +805,16 @@ async function callProvider(provider, prompt) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 45000);
   try {
+    const model = provider.model();
     const result = await fetch(provider.url, {
       method: 'POST',
       signal: controller.signal,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${provider.key()}` },
       body: JSON.stringify({
-        model: provider.model(),
+        model,
         messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' }
+        response_format: { type: 'json_object' },
+        ...(provider.options ? provider.options(model) : {})
       })
     });
     if (!result.ok) {
@@ -820,6 +825,13 @@ async function callProvider(provider, prompt) {
       throw error;
     }
     const data = await result.json();
+    // Nogriezta atbilde var būt derīgs JSON ar trūkstošām ēdienreizēm, tāpēc to neizmanto
+    if (data.choices?.[0]?.finish_reason === 'length') {
+      console.error(`${provider.name} atbilde nogriezta (sasniegts tokenu limits)`);
+      const error = new Error(`${provider.name} atbilde bija nepilna.`);
+      error.status = 502;
+      throw error;
+    }
     const text = data.choices?.[0]?.message?.content || '';
     return JSON.parse(text.replace(/```json|```/g, '').trim());
   } finally {
@@ -862,11 +874,16 @@ function normalizeText(text) {
   return String(text || '').toLowerCase().trim();
 }
 
-function productStem(name) {
-  const longest = normalizeText(name).split(/\s+/).sort((a, b) => b.length - a.length)[0] || '';
-  if (longest.length >= 6) return longest.slice(0, -2);
-  if (longest.length === 5) return longest.slice(0, -1);
-  return '';
+function wordStem(word) {
+  if (word.length >= 6) return word.slice(0, -2);
+  if (word.length === 5) return word.slice(0, -1);
+  return word;
+}
+
+// Vai produkts minēts tekstā: jāatrod visu nosaukuma vārdu saknes (citādi "Vistas ola" sakristu ar "Vistas fileja")
+function mentionsProduct(text, name) {
+  const words = normalizeText(name).replace(/\(.*?\)/g, ' ').split(/[^\p{L}]+/u).filter((word) => word.length >= 3);
+  return words.length > 0 && words.every((word) => text.includes(wordStem(word)));
 }
 
 const mealTypeAliases = {
@@ -920,7 +937,7 @@ function validateMealPlan(raw, pantry, target, { vegetarian = false } = {}) {
 
     const mealText = normalizeText([name, ...steps].join(' '));
     const listed = new Set(ingredients.map((i) => i.foodItemId));
-    const missing = pantry.find((p) => !listed.has(p.foodItemId) && productStem(p.name) && mealText.includes(productStem(p.name)));
+    const missing = pantry.find((p) => !listed.has(p.foodItemId) && mentionsProduct(mealText, p.name));
     if (missing) warnings.push(`"${missing.name}" minēts receptē "${name}", bet nav sastāvdaļās.`);
 
     meals.push({
@@ -1002,7 +1019,7 @@ app.post('/api/meal-plan/generate', requireUser, asyncRoute(async (request, resp
       if (checked.plan.mode !== 'plan' && enoughForFullDay) {
         problems.push(`Produktu pietiek visai dienai (${Math.round(availableKcal)} kcal), tāpēc aizpildi visas 4 ēdienreizes.`);
       }
-      if (!problems.length) return response.json(checked.plan);
+      if (!problems.length) return response.json(await withAnalysis(checked.plan));
       if (!bestPlan || problems.length <= bestPlan.problems.length) bestPlan = { ...checked.plan, problems };
       lastError = problems.join(' ');
     } catch (error) {
@@ -1010,13 +1027,21 @@ app.post('/api/meal-plan/generate', requireUser, asyncRoute(async (request, resp
         await new Promise((resolve) => setTimeout(resolve, 3000));
         continue;
       }
-      if (error.status) return response.status(error.status).json({ error: error.message });
+      if (error.status) {
+        // Ja kāds iepriekšējais mēģinājums jau deva ēdienkarti, atgriež to, nevis kļūdu
+        if (bestPlan) break;
+        return response.status(error.status).json({ error: error.message });
+      }
       lastError = 'MI atbilde nebija derīga.';
     }
   }
   if (bestPlan) {
     const { problems, ...plan } = bestPlan;
-    return response.json({ ...plan, note: `Piezīme: ${problems.join(' ')} ${plan.note}`.trim() });
+    // Problēmas ir instrukcijas MI, nevis lietotājam, tāpēc tās tikai ieraksta logā
+    console.warn(`Atgriezta ēdienkarte ar problēmām: ${problems.join(' ')}`);
+    // Produktu pietiek visai dienai, bet MI neaizpildīja visas ēdienreizes
+    const incomplete = enoughForFullDay && plan.mode !== 'plan';
+    return response.json(await withAnalysis({ ...plan, ...(incomplete ? { incomplete: true } : {}) }));
   }
   return response.status(422).json({ error: lastError + ' Mēģini vēlreiz.' });
 }));
@@ -1026,6 +1051,126 @@ const mealPlanSchema = new mongoose.Schema({
   plan: { type: mongoose.Schema.Types.Mixed, required: true }
 }, { timestamps: true });
 const MealPlan = mongoose.model('MealPlan', mealPlanSchema);
+
+// Dienas normas vitamīniem un minerālvielām (mg) no seed/products.json; nolasa vienreiz
+let dailyNormsCache;
+function dailyNorms() {
+  if (dailyNormsCache !== undefined) return dailyNormsCache;
+  try {
+    const seed = JSON.parse(fs.readFileSync(path.join(__dirname, 'seed', 'products.json'), 'utf8'));
+    dailyNormsCache = seed.dailyNorms || null;
+  } catch (error) {
+    console.warn(`Dienas normas nav nolasāmas: ${error.message}`);
+    dailyNormsCache = null;
+  }
+  return dailyNormsCache;
+}
+
+// Summē vitamīnus vai minerālvielas no produktiem, kuriem dati ir zināmi, un izsaka % no dienas normas
+function nutrientShares(ingredients, productsById, field, norms) {
+  let partial = false;
+  const totals = {};
+  for (const ingredient of ingredients) {
+    const values = productsById.get(ingredient.foodItemId)?.[field];
+    if (!values) {
+      partial = true;
+      continue;
+    }
+    for (const key of Object.keys(norms)) {
+      const value = Number(values[key]);
+      if (!Number.isFinite(value)) {
+        partial = true;
+        continue;
+      }
+      totals[key] = (totals[key] || 0) + value * ingredient.grams / 100;
+    }
+  }
+  const items = Object.entries(norms)
+    .filter(([key, norm]) => totals[key] !== undefined && norm > 0)
+    .map(([key, norm]) => ({ key, mg: round(totals[key], 2), normMg: norm, percent: Math.round(totals[key] / norm * 100) }));
+  return { items, partial };
+}
+
+// Ēdienkartes analīze no datubāzes vērtībām: makroelementi, vitamīni, minerālvielas un aptuvenās izmaksas
+async function analyzePlan(meals) {
+  const ingredients = meals.flatMap((meal) => meal.ingredients || []);
+  const products = await FoodItem.find(
+    { id: { $in: [...new Set(ingredients.map((i) => i.foodItemId))] } },
+    { id: 1, vitamins: 1, minerals: 1, price_eur_per_kg: 1 }
+  ).lean();
+  const productsById = new Map(products.map((p) => [p.id, p]));
+
+  const grams = (field) => round(ingredients.reduce((sum, i) => sum + (Number(i[field]) || 0), 0), 1);
+  const protein = grams('protein');
+  const fat = grams('fat');
+  const carbohydrates = grams('carbohydrates');
+  const macroKcal = protein * 4 + fat * 9 + carbohydrates * 4;
+  const share = (kcal) => (macroKcal > 0 ? Math.round(kcal / macroKcal * 100) : 0);
+
+  const norms = dailyNorms();
+  const vitamins = norms?.vitamins_mg ? nutrientShares(ingredients, productsById, 'vitamins', norms.vitamins_mg) : { items: [], partial: true };
+  const minerals = norms?.minerals_mg ? nutrientShares(ingredients, productsById, 'minerals', norms.minerals_mg) : { items: [], partial: true };
+
+  let cost = 0;
+  let costPartial = false;
+  let costKnown = false;
+  for (const ingredient of ingredients) {
+    const price = Number(productsById.get(ingredient.foodItemId)?.price_eur_per_kg);
+    if (!Number.isFinite(price)) {
+      costPartial = true;
+      continue;
+    }
+    cost += price * ingredient.grams / 1000;
+    costKnown = true;
+  }
+
+  return {
+    macros: {
+      protein: { grams: protein, percent: share(protein * 4) },
+      fat: { grams: fat, percent: share(fat * 9) },
+      carbohydrates: { grams: carbohydrates, percent: share(carbohydrates * 4) }
+    },
+    vitamins: vitamins.items,
+    vitaminsPartial: vitamins.partial,
+    minerals: minerals.items,
+    mineralsPartial: minerals.partial,
+    costEur: costKnown ? round(cost, 2) : null,
+    costPartial
+  };
+}
+
+// Saglabājot pieņem tikai zināmos analīzes laukus kā skaitļus
+function sanitizeAnalysis(analysis) {
+  if (!analysis || typeof analysis !== 'object') return undefined;
+  const number = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
+  const macro = (value) => ({ grams: number(value?.grams), percent: number(value?.percent) });
+  const nutrients = (list) => (Array.isArray(list) ? list : []).slice(0, 10).map((item) => ({
+    key: String(item?.key || '').slice(0, 10), mg: number(item?.mg), normMg: number(item?.normMg), percent: number(item?.percent)
+  }));
+  return {
+    macros: {
+      protein: macro(analysis.macros?.protein),
+      fat: macro(analysis.macros?.fat),
+      carbohydrates: macro(analysis.macros?.carbohydrates)
+    },
+    vitamins: nutrients(analysis.vitamins),
+    vitaminsPartial: Boolean(analysis.vitaminsPartial),
+    minerals: nutrients(analysis.minerals),
+    mineralsPartial: Boolean(analysis.mineralsPartial),
+    costEur: analysis.costEur === null || analysis.costEur === undefined ? null : number(analysis.costEur),
+    costPartial: Boolean(analysis.costPartial)
+  };
+}
+
+// Pievieno analīzi; ja tā neizdodas, ēdienkarte tiek atgriezta bez tās
+async function withAnalysis(plan) {
+  try {
+    return { ...plan, analysis: await analyzePlan(plan.meals) };
+  } catch (error) {
+    console.error(`Ēdienkartes analīze neizdevās: ${error.message}`);
+    return plan;
+  }
+}
 
 function sanitizePlan(plan) {
   const meals = (Array.isArray(plan?.meals) ? plan.meals : []).slice(0, 10).map((meal) => ({
@@ -1046,7 +1191,9 @@ function sanitizePlan(plan) {
     totalKcal: Number(plan?.totalKcal) || 0,
     totalProtein: Number(plan?.totalProtein) || 0,
     target: { dailyKcal: Number(plan?.target?.dailyKcal) || 0 },
-    note: String(plan?.note || '').slice(0, 300)
+    note: String(plan?.note || '').slice(0, 300),
+    ...(plan?.incomplete === true ? { incomplete: true } : {}),
+    ...(plan?.analysis ? { analysis: sanitizeAnalysis(plan.analysis) } : {})
   };
 }
 
@@ -1323,7 +1470,7 @@ async function seedMealPlans() {
       console.warn(`Demo ēdienkarte izlaista: ${checked.error}`);
       continue;
     }
-    const plan = sanitizePlan(checked.plan);
+    const plan = sanitizePlan(await withAnalysis(checked.plan));
     await MealPlan.create({ user: demo._id, plan });
     await recordPlanRecipes(plan, demo._id);
     saved += 1;
